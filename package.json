@@ -1,0 +1,22 @@
+{
+  "name": "radio-caster",
+  "version": "1.0.0",
+  "description": "Play public radio on Google Home / Nest Hub using the Cast protocol",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "cast-now": "ts-node src/cast-now.ts",
+    "stop-cast": "ts-node src/stop-cast.ts",
+    "discover": "ts-node src/discover.ts"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.2.1",
+    "castv2-client": "^1.0.7",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/node-cron": "^3.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
