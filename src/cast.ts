@@ -28,20 +28,18 @@ function probeStream(url: string, maxHops = 5): Promise<StreamInfo> {
 
     const lib = url.startsWith('https') ? https : http;
     const agentOpts = url.startsWith('https') ? { rejectUnauthorized: false } : {};
-    const req = lib.request(url, { method: 'HEAD', ...agentOpts }, (res) => {
+    const req = lib.request(url, { method: 'HEAD', timeout: 6000, ...agentOpts }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const next = new URL(res.headers.location, url).toString();
         resolve(probeStream(next, maxHops - 1));
       } else {
-        // Strip codec params and charset suffixes — Cast only needs the base type.
         const raw = res.headers['content-type'] ?? '';
         const detected = raw.split(';')[0].trim();
-        // HEAD on a streaming server sometimes returns an error page (text/html).
-        // Only trust the detected type if it's actually audio.
         const isAudio = detected.startsWith('audio/') || detected === 'application/ogg';
         resolve({ url, contentType: isAudio ? detected : 'audio/mpeg' });
       }
     });
+    req.on('timeout', () => { req.destroy(); resolve(fallback); });
     req.on('error', () => resolve(fallback));
     req.end();
   });

@@ -22,6 +22,12 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', stations: Object.keys(STATIONS) });
 });
 
+app.head('/:station', (req, res) => {
+  const station = STATIONS[req.params.station];
+  if (!station) { res.sendStatus(404); return; }
+  res.set('Content-Type', station.contentType).sendStatus(200);
+});
+
 app.get('/:station', (req, res) => {
   const station = STATIONS[req.params.station];
   if (!station) {
