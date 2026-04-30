@@ -16,6 +16,9 @@ const STATIONS: Record<string, { url: string }> = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
   },
+  'san-jose': {
+    url: 'https://radio.sikhnet.com/proxy/channel18/live',
+  },
 };
 
 // ---------------------------------------------------------------------------

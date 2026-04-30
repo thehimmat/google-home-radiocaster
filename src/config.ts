@@ -69,6 +69,12 @@ export const stations: Record<string, StationConfig> = {
     artworkUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG",
   },
 
+  "San Jose Gurdwara": {
+    url: "https://stream.atthebunga.com/san-jose",
+    title: "Gurdwara San Jose",
+    subtitle: "San Jose, CA",
+  },
+
   // Useful sanity-check station — plain HTTP, no SSL, reliably always up.
   "SomaFM Groove Salad": {
     url: "http://ice1.somafm.com/groovesalad-128-mp3",
