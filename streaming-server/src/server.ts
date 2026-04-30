@@ -4,8 +4,13 @@ import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 
 const app = express();
+// Trust Railway's X-Forwarded-Proto header so req.protocol returns 'https',
+// which is required for correct absolute URLs in the rewritten M3U8 playlist.
+app.set('trust proxy', true);
+
 const PORT = process.env.PORT ?? 3001;
 const HLS_ROOT = '/tmp/hls';
+const HLS_LIST_SIZE = 15;
 
 const STATIONS: Record<string, { url: string }> = {
   'golden-temple': {
@@ -27,41 +32,66 @@ function playlistPath(station: string): string {
   return path.join(hlsDir(station), 'stream.m3u8');
 }
 
+/**
+ * Read the current EXT-X-MEDIA-SEQUENCE from an existing playlist so that
+ * when FFmpeg restarts we can pass -start_number and avoid jumping backwards.
+ * Jumping backwards confuses HLS clients into stopping playback.
+ */
+function getNextStartNumber(station: string): number {
+  try {
+    const content = fs.readFileSync(playlistPath(station), 'utf8');
+    const match = content.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/);
+    if (match) {
+      // Skip past the current window plus a small buffer so there's no
+      // overlap or backwards jump.
+      return parseInt(match[1]) + HLS_LIST_SIZE + 5;
+    }
+  } catch {
+    // No existing playlist — starting fresh.
+  }
+  return 0;
+}
+
 function startFfmpeg(station: string, upstreamUrl: string): void {
   const dir = hlsDir(station);
   fs.mkdirSync(dir, { recursive: true });
 
+  const startNumber = getNextStartNumber(station);
+
   const args = [
-    // Input options: reconnect on drop/EOF, spoof User-Agent so Shoutcast
-    // returns raw audio instead of an HTML redirect page.
+    // Reconnect automatically on upstream drop/EOF.
     '-reconnect', '1',
     '-reconnect_at_eof', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '30',
+    // Shoutcast returns an HTML page for browser UAs; this gets raw audio.
     '-user_agent', 'WinampMPEG/5.0',
-    // Accept self-signed certs (SGPC uses one on port 8443).
+    // SGPC uses a self-signed cert on port 8443.
     '-tls_verify', '0',
     '-i', upstreamUrl,
-    // Re-encode to AAC so every Cast device can play it.
+    // Re-encode to AAC — required for Cast Default Media Receiver.
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
-    // HLS output: 4-second segments, keep 10 in playlist, delete old ones.
-    // omit_endlist keeps the playlist open-ended (live stream).
-    // Base URL tells the playlist where segments live relative to the server.
+    // HLS output. Segment filename and playlist are BARE (no path) so FFmpeg
+    // writes bare names into the M3U8 — we rewrite them to full URLs in Express.
+    // Using cwd:dir means all files land in the right place.
     '-f', 'hls',
     '-hls_time', '4',
-    '-hls_list_size', '10',
+    '-hls_list_size', String(HLS_LIST_SIZE),
     '-hls_flags', 'delete_segments+omit_endlist',
-    '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
-    path.join(dir, 'stream.m3u8'),
+    '-start_number', String(startNumber),
+    '-hls_segment_filename', 'seg%05d.ts',
+    'stream.m3u8',
   ];
 
-  const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  // cwd:dir is critical — bare filenames in args are resolved relative to this
+  // directory, so segments and playlist end up in /tmp/hls/{station}/ and the
+  // M3U8 references them as plain "seg00000.ts" (not absolute filesystem paths).
+  const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: dir });
   ffmpegProcesses.set(station, proc);
 
   proc.stderr?.on('data', (chunk: Buffer) => {
-    // FFmpeg writes progress to stderr; only log errors/warnings to avoid noise.
     const line = chunk.toString();
     if (line.includes('Error') || line.includes('error') || line.includes('warn')) {
       process.stderr.write(`[ffmpeg:${station}] ${line}`);
@@ -74,10 +104,9 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
     setTimeout(() => startFfmpeg(station, upstreamUrl), 3000);
   });
 
-  console.log(`[ffmpeg:${station}] started (pid=${proc.pid})`);
+  console.log(`[ffmpeg:${station}] started (pid=${proc.pid}, start_number=${startNumber})`);
 }
 
-// Start an FFmpeg process for every station at server boot.
 for (const [name, station] of Object.entries(STATIONS)) {
   startFfmpeg(name, station.url);
 }
@@ -113,7 +142,9 @@ app.head('/:station', (req, res) => {
   res.set('Content-Type', 'application/x-mpegURL').sendStatus(200);
 });
 
-// Serve the M3U8 playlist — wait up to 15s for FFmpeg to produce the first one.
+// Serve the M3U8 playlist. FFmpeg writes bare segment filenames into the
+// playlist (e.g. "seg00000.ts"). We rewrite them to absolute HTTPS URLs so
+// the Cast device knows where to fetch each segment.
 app.get('/:station', async (req, res) => {
   const { station } = req.params;
   if (!STATIONS[station]) {
@@ -128,11 +159,13 @@ app.get('/:station', async (req, res) => {
     return;
   }
 
-  // Read the raw playlist and rewrite segment paths to absolute server URLs
-  // so Cast devices can fetch segments regardless of how they resolved this URL.
   const raw = fs.readFileSync(playlistPath(station), 'utf8');
+  // Rewrite bare "seg00000.ts" lines to full URLs. The m flag makes ^ and $
+  // match line boundaries; \r? handles any stray Windows line endings.
   const baseUrl = `${req.protocol}://${req.get('host')}/${station}/`;
-  const rewritten = raw.replace(/^(seg\d+\.ts)$/gm, `${baseUrl}$1`);
+  const rewritten = raw.replace(/^(seg\d+\.ts)\r?$/gm, `${baseUrl}$1`);
+
+  console.log(`[${station}] playlist served to ${req.ip} (seq rewrite base: ${baseUrl})`);
 
   res
     .set('Content-Type', 'application/x-mpegURL')
