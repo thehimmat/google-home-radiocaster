@@ -25,8 +25,8 @@ export function startScheduler(): void {
     console.log(`  ${label}`);
 
     cron.schedule(entry.cron, async () => {
-      const streamUrl = stations[entry.station];
-      if (!streamUrl) {
+      const station = stations[entry.station];
+      if (!station) {
         console.error(`\n[${new Date().toLocaleTimeString()}] Skipping "${entry.station}" — URL not found in stations map.`);
         return;
       }
@@ -40,10 +40,11 @@ export function startScheduler(): void {
 
       try {
         const { stopProxy } = await castRadio({
-          streamUrl,
+          streamUrl: station.url,
           deviceName: entry.deviceName,
           volume: entry.volume,
           deviceIp: entry.deviceIp,
+          metadata: { title: station.title, subtitle: station.subtitle, artworkUrl: station.artworkUrl },
         });
         currentStop = stopProxy;
         console.log(`  Done.`);

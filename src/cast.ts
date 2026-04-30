@@ -114,6 +114,12 @@ export interface CastOptions {
    * Defaults to false — the device fetches the URL directly.
    */
   useProxy?: boolean;
+  /** Metadata displayed on the Cast device screen. */
+  metadata?: {
+    title?: string;
+    subtitle?: string;
+    artworkUrl?: string;
+  };
 }
 
 export interface CastResult {
@@ -128,7 +134,7 @@ export interface CastResult {
  * stopProxy() handle — call it when you want to cut audio.
  */
 export async function castRadio(options: CastOptions): Promise<CastResult> {
-  const { streamUrl, deviceName, volume, deviceIp, useProxy = false } = options;
+  const { streamUrl, deviceName, volume, deviceIp, useProxy = false, metadata } = options;
 
   // Step 1: resolve the device's IP address.
   let host: string;
@@ -192,9 +198,18 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
           }
 
           // Step 7: load the stream URL (direct or proxied) into the receiver.
-          const media = {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const media: any = {
             contentId: castUrl,
             contentType: stream.contentType,
+            ...(metadata?.title || metadata?.artworkUrl ? {
+              metadata: {
+                metadataType: 0,
+                ...(metadata.title    && { title: metadata.title }),
+                ...(metadata.subtitle && { subtitle: metadata.subtitle }),
+                ...(metadata.artworkUrl && { images: [{ url: metadata.artworkUrl }] }),
+              },
+            } : {}),
           };
 
           player.load(media, { autoplay: true }, (loadErr, status) => {

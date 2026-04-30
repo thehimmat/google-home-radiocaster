@@ -31,8 +31,8 @@ if (!stationArg) {
   process.exit(1);
 }
 
-const streamUrl = stations[stationArg];
-if (!streamUrl) {
+const stationConfig = stations[stationArg];
+if (!stationConfig) {
   console.error(`Station "${stationArg}" not found in config.ts.`);
   console.error(`Available stations: ${Object.keys(stations).join(', ')}`);
   process.exit(1);
@@ -51,11 +51,12 @@ const scheduleEntry = schedule.find((e) => e.deviceName === deviceName);
 console.log(`\nCasting "${stationArg}" to "${deviceName}"${useProxy ? ' via local proxy' : ' (direct)'}...`);
 
 castRadio({
-  streamUrl,
+  streamUrl: stationConfig.url,
   deviceName,
   volume: volumeOverride ?? scheduleEntry?.volume,
   deviceIp: scheduleEntry?.deviceIp,
   useProxy,
+  metadata: { title: stationConfig.title, subtitle: stationConfig.subtitle, artworkUrl: stationConfig.artworkUrl },
 })
   .then(({ stopProxy }) => {
     if (useProxy) {

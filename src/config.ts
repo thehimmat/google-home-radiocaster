@@ -31,6 +31,17 @@
 //   or in the Google Home app under device settings.
 // =============================================================================
 
+export interface StationConfig {
+  /** Direct audio stream URL */
+  url: string;
+  /** Display title shown on the Cast device screen */
+  title?: string;
+  /** Subtitle shown below the title (e.g. city or station tagline) */
+  subtitle?: string;
+  /** Artwork image URL shown on the Cast device screen */
+  artworkUrl?: string;
+}
+
 export interface ScheduleEntry {
   /** Cron expression for when to start (e.g. "0 7 * * 1-5" = 7 am Mon–Fri) */
   cron: string;
@@ -47,18 +58,26 @@ export interface ScheduleEntry {
 // -----------------------------------------------------------------------------
 // STATIONS
 // Add or remove entries here. The key is a friendly label you choose yourself.
-// The value must be a direct audio stream URL (mp3 or aac).
+// url must be a direct audio stream URL (mp3, aac, or m3u8).
+// title, subtitle, artworkUrl are shown on the Cast device screen (all optional).
 // -----------------------------------------------------------------------------
-export const stations: Record<string, string> = {
-  "Golden Temple": "https://stream.atthebunga.com/golden-temple",
+export const stations: Record<string, StationConfig> = {
+  "Golden Temple": {
+    url: "https://stream.atthebunga.com/golden-temple",
+    title: "Golden Temple Radio",
+    subtitle: "Amritsar",
+    artworkUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG",
+  },
 
   // Useful sanity-check station — plain HTTP, no SSL, reliably always up.
-  "SomaFM Groove Salad": "http://ice1.somafm.com/groovesalad-128-mp3",
+  "SomaFM Groove Salad": {
+    url: "http://ice1.somafm.com/groovesalad-128-mp3",
+  },
 
   // TODO: streamguys1.com has a TLS cert mismatch — find working URLs from
   // opb.org and kexp.org before adding these back to the schedule.
-  // "OPB News": "https://opb-news.streamguys1.com/opb-news-mp3",
-  // "KEXP":     "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",
+  // "OPB News": { url: "https://opb-news.streamguys1.com/opb-news-mp3" },
+  // "KEXP":     { url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3" },
 };
 
 // -----------------------------------------------------------------------------
