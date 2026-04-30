@@ -2,9 +2,9 @@ import cron from 'node-cron';
 import { schedule, stations } from './config';
 import { castRadio } from './cast';
 
-// Holds the stopProxy handle for the currently playing stream so we can
-// shut down the old proxy before starting a new one.
-let currentStopProxy: (() => void) | null = null;
+// Holds the stop handle for the currently active stream. For direct casts
+// this is a no-op; for proxy-mode casts it shuts down the local HTTP server.
+let currentStop: (() => void) | null = null;
 
 export function startScheduler(): void {
   console.log('\nValidating schedule...');
@@ -33,10 +33,9 @@ export function startScheduler(): void {
 
       console.log(`\n[${new Date().toLocaleTimeString()}] Starting: ${label}`);
 
-      // Stop the previous stream's proxy before starting a new one.
-      if (currentStopProxy) {
-        currentStopProxy();
-        currentStopProxy = null;
+      if (currentStop) {
+        currentStop();
+        currentStop = null;
       }
 
       try {
@@ -46,7 +45,7 @@ export function startScheduler(): void {
           volume: entry.volume,
           deviceIp: entry.deviceIp,
         });
-        currentStopProxy = stopProxy;
+        currentStop = stopProxy;
         console.log(`  Done.`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

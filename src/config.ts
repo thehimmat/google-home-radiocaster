@@ -50,15 +50,15 @@ export interface ScheduleEntry {
 // The value must be a direct audio stream URL (mp3 or aac).
 // -----------------------------------------------------------------------------
 export const stations: Record<string, string> = {
-  // Test station — plain HTTP, no SSL, reliable CDN. Use this to verify the
-  // Cast pipeline works before switching to your actual stations.
+  "Golden Temple": "https://stream.atthebunga.com/golden-temple",
+
+  // Useful sanity-check station — plain HTTP, no SSL, reliably always up.
   "SomaFM Groove Salad": "http://ice1.somafm.com/groovesalad-128-mp3",
 
-  // streamguys1.com URLs return SSL errors — need correct URLs from opb.org / kexp.org.
-  "OPB News":      "https://opb-news.streamguys1.com/opb-news-mp3",
-  "KEXP":          "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",
-
-  "Golden Temple": "https://stream.atthebunga.com/golden-temple",
+  // TODO: streamguys1.com has a TLS cert mismatch — find working URLs from
+  // opb.org and kexp.org before adding these back to the schedule.
+  // "OPB News": "https://opb-news.streamguys1.com/opb-news-mp3",
+  // "KEXP":     "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",
 };
 
 // -----------------------------------------------------------------------------
@@ -66,18 +66,12 @@ export const stations: Record<string, string> = {
 // Each entry = one alarm. Add as many as you like.
 // -----------------------------------------------------------------------------
 export const schedule: ScheduleEntry[] = [
+  // TODO: add OPB News and KEXP back once working stream URLs are found.
   {
-    cron: "0 7 * * 1-5",        // 7:00 am, Monday–Friday
-    station: "OPB News",
+    cron: "0 6 * * *",          // 6:00 am, every day
+    station: "Golden Temple",
     deviceName: "Kitchen Display",
     deviceIp: "192.168.0.5",
-    volume: 60,
-  },
-  {
-    cron: "0 9 * * 6,0",        // 9:00 am, Saturday & Sunday
-    station: "KEXP",
-    deviceName: "Kitchen Display",
-    deviceIp: "192.168.0.5",
-    volume: 50,
+    volume: 30,
   },
 ];
