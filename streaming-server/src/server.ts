@@ -1,111 +1,159 @@
 import express from 'express';
-import * as https from 'https';
-import * as http from 'http';
-import { IncomingMessage, ServerResponse } from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import { spawn, ChildProcess } from 'child_process';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
+const HLS_ROOT = '/tmp/hls';
 
-const lenientHttpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-const STATIONS: Record<string, { url: string; contentType: string }> = {
+const STATIONS: Record<string, { url: string }> = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
-    // Upstream serves audio/aacp but Cast devices only accept audio/aac —
-    // they're the same codec (HE-AAC), the receiver just needs the right label.
-    contentType: 'audio/aac',
   },
 };
 
-const UPSTREAM_HEADERS = {
-  // A browser UA causes Shoutcast to return an HTML redirect page instead
-  // of the audio stream. A media player UA gets the raw bytes.
-  'User-Agent': 'WinampMPEG/5.0',
-  'Icy-MetaData': '0',
-};
+// ---------------------------------------------------------------------------
+// FFmpeg process management
+// ---------------------------------------------------------------------------
 
-/**
- * Opens a connection to the upstream Shoutcast server and pipes audio into
- * res. If the upstream drops (network blip, server restart, etc.), waits
- * briefly and reconnects — keeping the downstream connection to the Cast
- * device alive so playback resumes without the device stopping.
- */
-function pipeWithReconnect(
-  stationUrl: string,
-  res: ServerResponse,
-  retryDelay = 1000,
-): void {
-  // Stop trying once the Cast device has disconnected.
-  if (res.destroyed) return;
+const ffmpegProcesses: Map<string, ChildProcess> = new Map();
 
-  const lib = stationUrl.startsWith('https') ? https : http;
+function hlsDir(station: string): string {
+  return path.join(HLS_ROOT, station);
+}
 
-  const upstream = lib.get(
-    stationUrl,
-    {
-      agent: stationUrl.startsWith('https') ? lenientHttpsAgent : undefined,
-      headers: UPSTREAM_HEADERS,
-    },
-    (upRes: IncomingMessage) => {
-      // Reset retry delay on successful connection.
-      retryDelay = 1000;
+function playlistPath(station: string): string {
+  return path.join(hlsDir(station), 'stream.m3u8');
+}
 
-      // pipe without closing res when upstream ends — we'll reconnect instead.
-      upRes.pipe(res, { end: false });
+function startFfmpeg(station: string, upstreamUrl: string): void {
+  const dir = hlsDir(station);
+  fs.mkdirSync(dir, { recursive: true });
 
-      upRes.on('end', () => {
-        console.log(`Upstream ended, reconnecting in ${retryDelay}ms...`);
-        setTimeout(() => pipeWithReconnect(stationUrl, res, retryDelay), retryDelay);
-      });
+  const args = [
+    // Input options: reconnect on drop/EOF, spoof User-Agent so Shoutcast
+    // returns raw audio instead of an HTML redirect page.
+    '-reconnect', '1',
+    '-reconnect_at_eof', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '30',
+    '-user_agent', 'WinampMPEG/5.0',
+    // Accept self-signed certs (SGPC uses one on port 8443).
+    '-tls_verify', '0',
+    '-i', upstreamUrl,
+    // Re-encode to AAC so every Cast device can play it.
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ac', '2',
+    // HLS output: 4-second segments, keep 10 in playlist, delete old ones.
+    // omit_endlist keeps the playlist open-ended (live stream).
+    // Base URL tells the playlist where segments live relative to the server.
+    '-f', 'hls',
+    '-hls_time', '4',
+    '-hls_list_size', '10',
+    '-hls_flags', 'delete_segments+omit_endlist',
+    '-hls_segment_filename', path.join(dir, 'seg%05d.ts'),
+    path.join(dir, 'stream.m3u8'),
+  ];
 
-      // If the Cast device disconnects, stop pulling from upstream.
-      res.on('close', () => upstream.destroy());
-    },
-  );
+  const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  ffmpegProcesses.set(station, proc);
 
-  upstream.on('error', (err) => {
-    // Cap retry delay at 10s.
-    const nextDelay = Math.min(retryDelay * 2, 10000);
-    console.error(`Upstream error: ${err.message} — retrying in ${retryDelay}ms`);
-    setTimeout(() => pipeWithReconnect(stationUrl, res, nextDelay), retryDelay);
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    // FFmpeg writes progress to stderr; only log errors/warnings to avoid noise.
+    const line = chunk.toString();
+    if (line.includes('Error') || line.includes('error') || line.includes('warn')) {
+      process.stderr.write(`[ffmpeg:${station}] ${line}`);
+    }
+  });
+
+  proc.on('exit', (code, signal) => {
+    console.log(`[ffmpeg:${station}] exited (code=${code} signal=${signal}), restarting in 3s...`);
+    ffmpegProcesses.delete(station);
+    setTimeout(() => startFfmpeg(station, upstreamUrl), 3000);
+  });
+
+  console.log(`[ffmpeg:${station}] started (pid=${proc.pid})`);
+}
+
+// Start an FFmpeg process for every station at server boot.
+for (const [name, station] of Object.entries(STATIONS)) {
+  startFfmpeg(name, station.url);
+}
+
+// ---------------------------------------------------------------------------
+// Wait for the HLS playlist to become available
+// ---------------------------------------------------------------------------
+
+function waitForPlaylist(station: string, timeoutMs = 15000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const playlist = playlistPath(station);
+    const deadline = Date.now() + timeoutMs;
+
+    const check = () => {
+      if (fs.existsSync(playlist)) return resolve();
+      if (Date.now() >= deadline) return reject(new Error(`Playlist not ready after ${timeoutMs}ms`));
+      setTimeout(check, 250);
+    };
+    check();
   });
 }
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', stations: Object.keys(STATIONS) });
 });
 
 app.head('/:station', (req, res) => {
-  const station = STATIONS[req.params.station];
-  if (!station) { res.sendStatus(404); return; }
-  res.set('Content-Type', station.contentType).sendStatus(200);
+  if (!STATIONS[req.params.station]) { res.sendStatus(404); return; }
+  res.set('Content-Type', 'application/x-mpegURL').sendStatus(200);
 });
 
-app.get('/:station', (req, res) => {
-  const station = STATIONS[req.params.station];
-  if (!station) {
-    res.status(404).json({
-      error: `Unknown station. Available: ${Object.keys(STATIONS).join(', ')}`,
-    });
+// Serve the M3U8 playlist — wait up to 15s for FFmpeg to produce the first one.
+app.get('/:station', async (req, res) => {
+  const { station } = req.params;
+  if (!STATIONS[station]) {
+    res.status(404).json({ error: `Unknown station. Available: ${Object.keys(STATIONS).join(', ')}` });
     return;
   }
 
-  const client = req.socket.remoteAddress ?? 'unknown';
-  console.log(`[${req.params.station}] client connected: ${client}`);
+  try {
+    await waitForPlaylist(station);
+  } catch {
+    res.status(503).json({ error: 'Stream not ready yet, try again shortly.' });
+    return;
+  }
 
-  res.writeHead(200, {
-    'Content-Type': station.contentType,
-    'Connection': 'keep-alive',
-    'Cache-Control': 'no-cache, no-store',
-    'Transfer-Encoding': 'chunked',
-    'Access-Control-Allow-Origin': '*',
-  });
+  // Read the raw playlist and rewrite segment paths to absolute server URLs
+  // so Cast devices can fetch segments regardless of how they resolved this URL.
+  const raw = fs.readFileSync(playlistPath(station), 'utf8');
+  const baseUrl = `${req.protocol}://${req.get('host')}/${station}/`;
+  const rewritten = raw.replace(/^(seg\d+\.ts)$/gm, `${baseUrl}$1`);
 
-  res.on('close', () => {
-    console.log(`[${req.params.station}] client disconnected: ${client}`);
-  });
+  res
+    .set('Content-Type', 'application/x-mpegURL')
+    .set('Cache-Control', 'no-cache, no-store')
+    .set('Access-Control-Allow-Origin', '*')
+    .send(rewritten);
+});
 
-  pipeWithReconnect(station.url, res);
+// Serve .ts segment files.
+app.get('/:station/:file', (req, res) => {
+  const { station, file } = req.params;
+  if (!STATIONS[station] || !file.endsWith('.ts')) { res.sendStatus(404); return; }
+
+  const filePath = path.join(hlsDir(station), file);
+  if (!fs.existsSync(filePath)) { res.sendStatus(404); return; }
+
+  res
+    .set('Content-Type', 'video/MP2T')
+    .set('Cache-Control', 'public, max-age=60')
+    .set('Access-Control-Allow-Origin', '*')
+    .sendFile(filePath);
 });
 
 app.listen(PORT, () => {

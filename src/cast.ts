@@ -35,7 +35,10 @@ function probeStream(url: string, maxHops = 5): Promise<StreamInfo> {
       } else {
         const raw = res.headers['content-type'] ?? '';
         const detected = raw.split(';')[0].trim();
-        const isAudio = detected.startsWith('audio/') || detected === 'application/ogg';
+        const isAudio = detected.startsWith('audio/')
+          || detected === 'application/ogg'
+          || detected === 'application/x-mpegURL'
+          || detected === 'application/vnd.apple.mpegurl';
         resolve({ url, contentType: isAudio ? detected : 'audio/mpeg' });
       }
     });
