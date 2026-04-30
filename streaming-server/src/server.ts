@@ -38,9 +38,11 @@ app.get('/:station', (req, res) => {
     {
       agent: station.url.startsWith('https') ? lenientHttpsAgent : undefined,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Icy-MetaData': '0',
-      },
+          // A browser UA causes Shoutcast to return an HTML redirect page instead
+          // of the audio stream. A media player UA gets the raw bytes.
+          'User-Agent': 'WinampMPEG/5.0',
+          'Icy-MetaData': '0',
+        },
     },
     (upRes) => {
       res.writeHead(200, {
