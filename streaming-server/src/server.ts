@@ -142,7 +142,9 @@ app.get('/health', (_req, res) => {
 
 app.head('/:station', (req, res) => {
   if (!STATIONS[req.params.station]) { res.sendStatus(404); return; }
-  res.set('Content-Type', 'application/x-mpegURL').sendStatus(200);
+  // Use .end() not .sendStatus() — sendStatus sends a body which triggers
+  // Express to override the Content-Type we just set.
+  res.set('Content-Type', 'application/x-mpegURL').status(200).end();
 });
 
 // Serve the M3U8 playlist. FFmpeg writes bare segment filenames into the
@@ -167,8 +169,6 @@ app.get('/:station', async (req, res) => {
   // match line boundaries; \r? handles any stray Windows line endings.
   const baseUrl = `${req.protocol}://${req.get('host')}/${station}/`;
   const rewritten = raw.replace(/^(seg\d+\.ts)\r?$/gm, `${baseUrl}$1`);
-
-  console.log(`[${station}] playlist served to ${req.ip} (seq rewrite base: ${baseUrl})`);
 
   res
     .set('Content-Type', 'application/x-mpegURL')
