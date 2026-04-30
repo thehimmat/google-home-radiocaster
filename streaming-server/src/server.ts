@@ -90,12 +90,19 @@ app.get('/:station', (req, res) => {
     return;
   }
 
+  const client = req.socket.remoteAddress ?? 'unknown';
+  console.log(`[${req.params.station}] client connected: ${client}`);
+
   res.writeHead(200, {
     'Content-Type': station.contentType,
     'Connection': 'keep-alive',
     'Cache-Control': 'no-cache, no-store',
     'Transfer-Encoding': 'chunked',
     'Access-Control-Allow-Origin': '*',
+  });
+
+  res.on('close', () => {
+    console.log(`[${req.params.station}] client disconnected: ${client}`);
   });
 
   pipeWithReconnect(station.url, res);
