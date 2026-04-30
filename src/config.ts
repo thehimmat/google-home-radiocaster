@@ -58,8 +58,7 @@ export const stations: Record<string, string> = {
   "OPB News":      "https://opb-news.streamguys1.com/opb-news-mp3",
   "KEXP":          "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",
 
-  // Valid HTTPS, audio/aacp (AAC+), Shoutcast stream on port 8443.
-  "Golden Temple": "https://live.sgpc.net:8443/",
+  "Golden Temple": "https://stream.atthebunga.com/golden-temple",
 };
 
 // -----------------------------------------------------------------------------

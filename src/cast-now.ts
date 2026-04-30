@@ -4,18 +4,22 @@
  * Usage:
  *   npm run cast-now "OPB News"
  *   npm run cast-now "KEXP" "Bedroom speaker"
- *   npm run cast-now "OPB News" -- --proxy   # relay via local proxy instead of direct
+ *   npm run cast-now "OPB News" -- --proxy      # relay via local proxy instead of direct
+ *   npm run cast-now "OPB News" -- --volume=40  # set volume 0–100
  *
  * Arguments:
  *   1st: station name (must match a key in config.ts stations map)
  *   2nd: device name (optional — defaults to the first device in your schedule)
  *   --proxy: relay audio through a local HTTP server on this machine (fallback if direct fails)
+ *   --volume=N: override volume 0–100 (otherwise uses schedule entry value)
  */
 import { stations, schedule } from './config';
 import { castRadio } from './cast';
 
 const args = process.argv.slice(2);
 const useProxy = args.includes('--proxy');
+const volumeArg = args.find((a) => a.startsWith('--volume='));
+const volumeOverride = volumeArg ? parseInt(volumeArg.split('=')[1], 10) : undefined;
 const positional = args.filter((a) => !a.startsWith('--'));
 
 const stationArg = positional[0];
@@ -49,7 +53,7 @@ console.log(`\nCasting "${stationArg}" to "${deviceName}"${useProxy ? ' via loca
 castRadio({
   streamUrl,
   deviceName,
-  volume: scheduleEntry?.volume,
+  volume: volumeOverride ?? scheduleEntry?.volume,
   deviceIp: scheduleEntry?.deviceIp,
   useProxy,
 })

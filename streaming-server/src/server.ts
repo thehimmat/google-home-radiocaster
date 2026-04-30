@@ -12,7 +12,9 @@ const lenientHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 const STATIONS: Record<string, { url: string; contentType: string }> = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
-    contentType: 'audio/aacp',
+    // Upstream serves audio/aacp but Cast devices only accept audio/aac —
+    // they're the same codec (HE-AAC), the receiver just needs the right label.
+    contentType: 'audio/aac',
   },
 };
 
@@ -41,11 +43,8 @@ app.get('/:station', (req, res) => {
       },
     },
     (upRes) => {
-      const upType = upRes.headers['content-type']?.split(';')[0].trim();
-      const isAudio = upType && (upType.startsWith('audio/') || upType === 'application/ogg');
-
       res.writeHead(200, {
-        'Content-Type': isAudio ? upType : station.contentType,
+        'Content-Type': station.contentType,
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache, no-store',
         'Transfer-Encoding': 'chunked',
