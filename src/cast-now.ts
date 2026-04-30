@@ -4,16 +4,22 @@
  * Usage:
  *   npm run cast-now "OPB News"
  *   npm run cast-now "KEXP" "Bedroom speaker"
+ *   npm run cast-now "OPB News" -- --proxy   # relay via local proxy instead of direct
  *
  * Arguments:
  *   1st: station name (must match a key in config.ts stations map)
  *   2nd: device name (optional — defaults to the first device in your schedule)
+ *   --proxy: relay audio through a local HTTP server on this machine (fallback if direct fails)
  */
 import { stations, schedule } from './config';
 import { castRadio } from './cast';
 
-const stationArg = process.argv[2];
-const deviceArg = process.argv[3];
+const args = process.argv.slice(2);
+const useProxy = args.includes('--proxy');
+const positional = args.filter((a) => !a.startsWith('--'));
+
+const stationArg = positional[0];
+const deviceArg = positional[1];
 
 if (!stationArg) {
   console.error('Usage: npm run cast-now "Station Name" ["Device Name"]');
@@ -38,26 +44,32 @@ if (!deviceName) {
 // Also pick up a static IP from the schedule entry if one is set for this device.
 const scheduleEntry = schedule.find((e) => e.deviceName === deviceName);
 
-console.log(`\nCasting "${stationArg}" to "${deviceName}"...`);
+console.log(`\nCasting "${stationArg}" to "${deviceName}"${useProxy ? ' via local proxy' : ' (direct)'}...`);
 
 castRadio({
   streamUrl,
   deviceName,
   volume: scheduleEntry?.volume,
   deviceIp: scheduleEntry?.deviceIp,
+  useProxy,
 })
   .then(({ stopProxy }) => {
-    console.log('Done — playback started. Press Ctrl+C to stop the stream.\n');
-    // Keep the process alive so the local proxy keeps serving audio.
-    process.on('SIGINT', () => {
-      console.log('\nStopping proxy...');
-      stopProxy();
+    if (useProxy) {
+      console.log('Done — playback started via proxy. Press Ctrl+C to stop the stream.\n');
+      // Keep alive so the local proxy keeps serving audio to the device.
+      process.on('SIGINT', () => {
+        console.log('\nStopping proxy...');
+        stopProxy();
+        process.exit(0);
+      });
+      process.on('SIGTERM', () => {
+        stopProxy();
+        process.exit(0);
+      });
+    } else {
+      console.log('Done — stream URL sent to device. The device fetches audio directly.\n');
       process.exit(0);
-    });
-    process.on('SIGTERM', () => {
-      stopProxy();
-      process.exit(0);
-    });
+    }
   })
   .catch((err: Error) => {
     console.error(`Failed: ${err.message}`);

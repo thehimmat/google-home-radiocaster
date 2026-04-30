@@ -1,4 +1,5 @@
 node_modules/
 dist/
+streaming-server/dist/
 *.js.map
 .DS_Store

@@ -106,6 +106,13 @@ export interface CastOptions {
   volume?: number;
   /** Optional direct IP — bypasses mDNS discovery when set. */
   deviceIp?: string;
+  /**
+   * When true, audio is relayed through a local HTTP proxy on this machine
+   * instead of being fetched directly by the Cast device. Only needed if the
+   * device can't reach the stream URL (AP isolation, CDN SSL issues, etc.).
+   * Defaults to false — the device fetches the URL directly.
+   */
+  useProxy?: boolean;
 }
 
 export interface CastResult {
@@ -120,7 +127,7 @@ export interface CastResult {
  * stopProxy() handle — call it when you want to cut audio.
  */
 export async function castRadio(options: CastOptions): Promise<CastResult> {
-  const { streamUrl, deviceName, volume, deviceIp } = options;
+  const { streamUrl, deviceName, volume, deviceIp, useProxy = false } = options;
 
   // Step 1: resolve the device's IP address.
   let host: string;
@@ -140,12 +147,20 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
   }
   console.log(`  Content-Type: ${stream.contentType}`);
 
-  // Step 3: start a local HTTP proxy.
-  // The Cast device connects to this Mac instead of the external CDN, which is
-  // more reliable — the CDN may block Cast device User-Agents or the device
-  // may have restricted internet access from its network position.
-  const proxy = await startProxy(stream.url, stream.contentType);
-  console.log(`  Proxy listening at ${proxy.url}`);
+  // Step 3 (optional): start a local HTTP proxy.
+  // Only used when useProxy is true — e.g. if the device can't reach the CDN
+  // due to AP isolation or SSL certificate issues.
+  let castUrl = stream.url;
+  let stopProxy = () => {};
+
+  if (useProxy) {
+    const proxy = await startProxy(stream.url, stream.contentType);
+    console.log(`  Proxy listening at ${proxy.url}`);
+    castUrl = proxy.url;
+    stopProxy = proxy.close;
+  } else {
+    console.log(`  Sending URL directly to device (no proxy)`);
+  }
 
   // Step 4: open a TCP connection to the Cast device and start playback.
   try {
@@ -175,9 +190,9 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
             return reject(new Error(`Failed to launch receiver: ${err.message}`));
           }
 
-          // Step 7: load the local proxy URL into the receiver.
+          // Step 7: load the stream URL (direct or proxied) into the receiver.
           const media = {
-            contentId: proxy.url,
+            contentId: castUrl,
             contentType: stream.contentType,
           };
 
@@ -196,13 +211,13 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
               client.close();
               resolve();
             } else {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const idleReason = (status as any).idleReason ?? 'not provided';
               client.close();
               reject(new Error(
                 `Device rejected the stream (idleReason: ${idleReason}).\n` +
-                `  Proxy URL: ${proxy.url}\n` +
-                `  Content-Type: ${stream.contentType}\n` +
-                `  Check that the Nest Hub can reach this Mac's IP address.`
+                `  Cast URL: ${castUrl}\n` +
+                `  Content-Type: ${stream.contentType}`
               ));
             }
           });
@@ -210,9 +225,9 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
       });
     });
   } catch (err) {
-    proxy.close();
+    stopProxy();
     throw err;
   }
 
-  return { stopProxy: proxy.close };
+  return { stopProxy };
 }

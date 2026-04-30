@@ -50,13 +50,16 @@ export interface ScheduleEntry {
 // The value must be a direct audio stream URL (mp3 or aac).
 // -----------------------------------------------------------------------------
 export const stations: Record<string, string> = {
+  // Test station — plain HTTP, no SSL, reliable CDN. Use this to verify the
+  // Cast pipeline works before switching to your actual stations.
+  "SomaFM Groove Salad": "http://ice1.somafm.com/groovesalad-128-mp3",
+
+  // streamguys1.com URLs return SSL errors — need correct URLs from opb.org / kexp.org.
   "OPB News":      "https://opb-news.streamguys1.com/opb-news-mp3",
   "KEXP":          "https://kexp-mp3-128.streamguys1.com/kexp128.mp3",
+
+  // Valid HTTPS, audio/aacp (AAC+), Shoutcast stream on port 8443.
   "Golden Temple": "https://live.sgpc.net:8443/",
-  // More examples (uncomment to use):
-  // "WNYC FM":  "https://fm939.wnyc.org/wnycfm.aac",
-  // "NPR":      "https://npr-ice.streamguys1.com/live.mp3",
-  // "BBC R4":   "https://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourfm",
 };
 
 // -----------------------------------------------------------------------------
