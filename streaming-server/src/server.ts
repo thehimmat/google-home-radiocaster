@@ -25,7 +25,17 @@ const STATIONS: Record<string, { url: string }> = {
 // FFmpeg process management
 // ---------------------------------------------------------------------------
 
-const ffmpegProcesses: Map<string, ChildProcess> = new Map();
+// Tracks live FFmpeg processes so we can kill them cleanly on shutdown.
+const ffmpegProcesses = new Map<string, ChildProcess>();
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received — killing FFmpeg processes...');
+  for (const [name, proc] of ffmpegProcesses) {
+    proc.kill();
+    console.log(`  killed [ffmpeg:${name}]`);
+  }
+  process.exit(0);
+});
 
 function hlsDir(station: string): string {
   return path.join(HLS_ROOT, station);

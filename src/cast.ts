@@ -128,10 +128,10 @@ export interface CastResult {
 }
 
 /**
- * Connects to a Cast device and starts playing a radio stream via a local
- * proxy. The proxy fetches the stream on behalf of the Cast device (which
- * sometimes can't reach external streaming CDNs directly). Returns a
- * stopProxy() handle — call it when you want to cut audio.
+ * Connects to a Cast device and starts playing a radio stream. By default
+ * the device fetches the stream URL directly (useProxy: false). Returns a
+ * stopProxy() handle — a no-op for direct casts, shuts down the local HTTP
+ * server if proxy mode was used.
  */
 export async function castRadio(options: CastOptions): Promise<CastResult> {
   const { streamUrl, deviceName, volume, deviceIp, useProxy = false, metadata } = options;

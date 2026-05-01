@@ -2,10 +2,12 @@
 // CONFIGURATION — this is the only file you need to edit
 // =============================================================================
 //
-// HOW TO FIND A STATION'S STREAM URL:
-//   Search "[Station name] direct stream MP3 URL" and look for a URL that ends
-//   in .mp3 or .aac (NOT .m3u or .pls — those are playlists, not streams).
-//   The station's website or a site like streamurl.site can help.
+// HOW TO ADD A STATION:
+//   1. Find the upstream stream URL (ends in .mp3, .aac, or is a direct HTTP
+//      audio stream). The station's website or streamurl.site can help.
+//   2. Add an entry to STATIONS in streaming-server/src/server.ts using that
+//      upstream URL, then push so Railway auto-deploys.
+//   3. Add an entry here pointing to https://stream.atthebunga.com/<your-slug>.
 //
 // CRON SYNTAX — five fields, left to right:
 //   ┌─── minute       (0–59)
