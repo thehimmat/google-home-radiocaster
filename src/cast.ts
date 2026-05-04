@@ -21,17 +21,20 @@ interface StreamInfo {
  * header so we can tell the Cast receiver exactly what format to expect.
  * Falls back to 'audio/mpeg' if the server doesn't respond or HEAD is blocked.
  */
-function probeStream(url: string, maxHops = 5): Promise<StreamInfo> {
+function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<StreamInfo> {
   return new Promise((resolve) => {
     const fallback = { url, contentType: 'audio/mpeg' };
     if (maxHops === 0) return resolve(fallback);
 
     const lib = url.startsWith('https') ? https : http;
-    const agentOpts = url.startsWith('https') ? { rejectUnauthorized: false } : {};
+    // Only bypass TLS verification if we already failed with a secure connection.
+    // SGPC (live.sgpc.net:8443) uses a self-signed cert — allowInsecure handles that
+    // without disabling verification globally for all streams.
+    const agentOpts = (url.startsWith('https') && allowInsecure) ? { rejectUnauthorized: false } : {};
     const req = lib.request(url, { method: 'HEAD', timeout: 6000, ...agentOpts }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const next = new URL(res.headers.location, url).toString();
-        resolve(probeStream(next, maxHops - 1));
+        resolve(probeStream(next, maxHops - 1, allowInsecure));
       } else {
         const raw = res.headers['content-type'] ?? '';
         const detected = raw.split(';')[0].trim();
@@ -43,7 +46,18 @@ function probeStream(url: string, maxHops = 5): Promise<StreamInfo> {
       }
     });
     req.on('timeout', () => { req.destroy(); resolve(fallback); });
-    req.on('error', () => resolve(fallback));
+    req.on('error', (err: NodeJS.ErrnoException) => {
+      // On a TLS error, retry once without certificate verification.
+      // This handles self-signed certs (e.g. SGPC live.sgpc.net:8443) without
+      // disabling TLS verification for all streams up front.
+      const tlsCodes = ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'ERR_TLS_CERT_ALTNAME_INVALID'];
+      if (!allowInsecure && err.code && tlsCodes.includes(err.code)) {
+        resolve(probeStream(url, maxHops, true));
+      } else {
+        resolve(fallback);
+      }
+    });
     req.end();
   });
 }
@@ -57,7 +71,7 @@ function probeStream(url: string, maxHops = 5): Promise<StreamInfo> {
  * Cast devices advertise themselves via mDNS as _googlecast._tcp services.
  * The TXT record field "fn" (friendly name) matches what the Google Home app shows.
  */
-function discoverDevice(deviceName: string): Promise<string> {
+export function discoverDevice(deviceName: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const bonjour = new Bonjour();
     const browser = bonjour.find({ type: 'googlecast' });

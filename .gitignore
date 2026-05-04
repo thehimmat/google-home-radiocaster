@@ -3,3 +3,7 @@ dist/
 streaming-server/dist/
 *.js.map
 .DS_Store
+# Allow project-level tooling configs that the global gitignore excludes
+!eslint.config.js
+!streaming-server/eslint.config.js
+!streaming-server/jest.config.js

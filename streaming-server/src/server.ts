@@ -1,18 +1,11 @@
-import express from 'express';
 import * as fs from 'fs';
-import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-
-const app = express();
-// Trust Railway's X-Forwarded-Proto header so req.protocol returns 'https',
-// which is required for correct absolute URLs in the rewritten M3U8 playlist.
-app.set('trust proxy', true);
+import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 
 const PORT = process.env.PORT ?? 3001;
 const HLS_ROOT = '/tmp/hls';
-const HLS_LIST_SIZE = 15;
 
-const STATIONS: Record<string, { url: string }> = {
+const STATIONS: StationMap = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
   },
@@ -25,7 +18,6 @@ const STATIONS: Record<string, { url: string }> = {
 // FFmpeg process management
 // ---------------------------------------------------------------------------
 
-// Tracks live FFmpeg processes so we can kill them cleanly on shutdown.
 const ffmpegProcesses = new Map<string, ChildProcess>();
 
 process.on('SIGTERM', () => {
@@ -37,14 +29,6 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-function hlsDir(station: string): string {
-  return path.join(HLS_ROOT, station);
-}
-
-function playlistPath(station: string): string {
-  return path.join(hlsDir(station), 'stream.m3u8');
-}
-
 /**
  * Read the current EXT-X-MEDIA-SEQUENCE from an existing playlist so that
  * when FFmpeg restarts we can pass -start_number and avoid jumping backwards.
@@ -52,11 +36,9 @@ function playlistPath(station: string): string {
  */
 function getNextStartNumber(station: string): number {
   try {
-    const content = fs.readFileSync(playlistPath(station), 'utf8');
+    const content = fs.readFileSync(playlistPath(HLS_ROOT, station), 'utf8');
     const match = content.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/);
     if (match) {
-      // Skip past the current window plus a small buffer so there's no
-      // overlap or backwards jump.
       return parseInt(match[1]) + HLS_LIST_SIZE + 5;
     }
   } catch {
@@ -66,29 +48,23 @@ function getNextStartNumber(station: string): number {
 }
 
 function startFfmpeg(station: string, upstreamUrl: string): void {
-  const dir = hlsDir(station);
+  const dir = hlsDir(HLS_ROOT, station);
   fs.mkdirSync(dir, { recursive: true });
 
   const startNumber = getNextStartNumber(station);
 
   const args = [
-    // Reconnect automatically on upstream drop/EOF.
     '-reconnect', '1',
     '-reconnect_at_eof', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '30',
-    // Shoutcast returns an HTML page for browser UAs; this gets raw audio.
     '-user_agent', 'WinampMPEG/5.0',
     // SGPC uses a self-signed cert on port 8443.
     '-tls_verify', '0',
     '-i', upstreamUrl,
-    // Re-encode to AAC — required for Cast Default Media Receiver.
     '-c:a', 'aac',
     '-b:a', '128k',
     '-ac', '2',
-    // HLS output. Segment filename and playlist are BARE (no path) so FFmpeg
-    // writes bare names into the M3U8 — we rewrite them to full URLs in Express.
-    // Using cwd:dir means all files land in the right place.
     '-f', 'hls',
     '-hls_time', '4',
     '-hls_list_size', String(HLS_LIST_SIZE),
@@ -125,82 +101,10 @@ for (const [name, station] of Object.entries(STATIONS)) {
 }
 
 // ---------------------------------------------------------------------------
-// Wait for the HLS playlist to become available
+// HTTP server
 // ---------------------------------------------------------------------------
 
-function waitForPlaylist(station: string, timeoutMs = 15000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const playlist = playlistPath(station);
-    const deadline = Date.now() + timeoutMs;
-
-    const check = () => {
-      if (fs.existsSync(playlist)) return resolve();
-      if (Date.now() >= deadline) return reject(new Error(`Playlist not ready after ${timeoutMs}ms`));
-      setTimeout(check, 250);
-    };
-    check();
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
-
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', stations: Object.keys(STATIONS) });
-});
-
-app.head('/:station', (req, res) => {
-  if (!STATIONS[req.params.station]) { res.sendStatus(404); return; }
-  // Use .end() not .sendStatus() — sendStatus sends a body which triggers
-  // Express to override the Content-Type we just set.
-  res.set('Content-Type', 'application/x-mpegURL').status(200).end();
-});
-
-// Serve the M3U8 playlist. FFmpeg writes bare segment filenames into the
-// playlist (e.g. "seg00000.ts"). We rewrite them to absolute HTTPS URLs so
-// the Cast device knows where to fetch each segment.
-app.get('/:station', async (req, res) => {
-  const { station } = req.params;
-  if (!STATIONS[station]) {
-    res.status(404).json({ error: `Unknown station. Available: ${Object.keys(STATIONS).join(', ')}` });
-    return;
-  }
-
-  try {
-    await waitForPlaylist(station);
-  } catch {
-    res.status(503).json({ error: 'Stream not ready yet, try again shortly.' });
-    return;
-  }
-
-  const raw = fs.readFileSync(playlistPath(station), 'utf8');
-  // Rewrite bare "seg00000.ts" lines to full URLs. The m flag makes ^ and $
-  // match line boundaries; \r? handles any stray Windows line endings.
-  const baseUrl = `${req.protocol}://${req.get('host')}/${station}/`;
-  const rewritten = raw.replace(/^(seg\d+\.ts)\r?$/gm, `${baseUrl}$1`);
-
-  res
-    .set('Content-Type', 'application/x-mpegURL')
-    .set('Cache-Control', 'no-cache, no-store')
-    .set('Access-Control-Allow-Origin', '*')
-    .send(rewritten);
-});
-
-// Serve .ts segment files.
-app.get('/:station/:file', (req, res) => {
-  const { station, file } = req.params;
-  if (!STATIONS[station] || !file.endsWith('.ts')) { res.sendStatus(404); return; }
-
-  const filePath = path.join(hlsDir(station), file);
-  if (!fs.existsSync(filePath)) { res.sendStatus(404); return; }
-
-  res
-    .set('Content-Type', 'video/MP2T')
-    .set('Cache-Control', 'public, max-age=60')
-    .set('Access-Control-Allow-Origin', '*')
-    .sendFile(filePath);
-});
+const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);

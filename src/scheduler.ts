@@ -2,9 +2,10 @@ import cron from 'node-cron';
 import { schedule, stations } from './config';
 import { castRadio } from './cast';
 
-// Holds the stop handle for the currently active stream. For direct casts
-// this is a no-op; for proxy-mode casts it shuts down the local HTTP server.
-let currentStop: (() => void) | null = null;
+// Tracks the active stop handle per device. For direct casts this is a no-op;
+// for proxy-mode casts it shuts down the local HTTP server.
+// Keyed by deviceName so jobs targeting different devices don't clobber each other.
+const activeStops = new Map<string, () => void>();
 
 export function startScheduler(): void {
   console.log('\nValidating schedule...');
@@ -33,9 +34,10 @@ export function startScheduler(): void {
 
       console.log(`\n[${new Date().toLocaleTimeString()}] Starting: ${label}`);
 
-      if (currentStop) {
-        currentStop();
-        currentStop = null;
+      const prevStop = activeStops.get(entry.deviceName);
+      if (prevStop) {
+        prevStop();
+        activeStops.delete(entry.deviceName);
       }
 
       try {
@@ -46,7 +48,7 @@ export function startScheduler(): void {
           deviceIp: entry.deviceIp,
           metadata: { title: station.title, subtitle: station.subtitle, artworkUrl: station.artworkUrl },
         });
-        currentStop = stopProxy;
+        activeStops.set(entry.deviceName, stopProxy);
         console.log(`  Done.`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
