@@ -5,57 +5,73 @@
  *   npm run stop-cast                   — stops the first device in your schedule
  *   npm run stop-cast "Kitchen Display" — stops a specific device by name
  */
-import { Client } from 'castv2-client';
+import { Client, DefaultMediaReceiver } from 'castv2-client';
 import { schedule } from './config';
+import { discoverDevice } from './cast';
 
-const deviceArg = process.argv[2];
-const entry = deviceArg
-  ? schedule.find((e) => e.deviceName.toLowerCase() === deviceArg.toLowerCase())
-  : schedule[0];
+async function main() {
+  const deviceArg = process.argv[2];
+  const entry = deviceArg
+    ? schedule.find((e) => e.deviceName.toLowerCase() === deviceArg.toLowerCase())
+    : schedule[0];
 
-if (!entry) {
-  const names = [...new Set(schedule.map((e) => e.deviceName))].join(', ');
-  console.error(`Device "${deviceArg}" not found in schedule. Available: ${names}`);
-  process.exit(1);
-}
+  if (!entry) {
+    const names = [...new Set(schedule.map((e) => e.deviceName))].join(', ');
+    console.error(`Device "${deviceArg}" not found in schedule. Available: ${names}`);
+    process.exit(1);
+  }
 
-const host = entry.deviceIp ?? entry.deviceName;
-console.log(`\nStopping "${entry.deviceName}" (${host})...`);
+  let host: string;
+  if (entry.deviceIp) {
+    host = entry.deviceIp;
+  } else {
+    console.log(`  Discovering "${entry.deviceName}" on the network...`);
+    host = await discoverDevice(entry.deviceName);
+  }
 
-const client = new Client();
+  console.log(`\nStopping "${entry.deviceName}" (${host})...`);
 
-client.on('error', (err: Error) => {
-  console.error(`Error: ${err.message}`);
-  client.close();
-  process.exit(1);
-});
+  const client = new Client();
 
-client.connect(host, () => {
-  // Ask the device what's currently running.
-  client.getStatus((err, status) => {
-    if (err) {
-      console.error(`Could not get device status: ${err.message}`);
-      client.close();
-      process.exit(1);
-    }
+  client.on('error', (err: Error) => {
+    console.error(`Error: ${err.message}`);
+    client.close();
+    process.exit(1);
+  });
 
-    const app = status.applications?.[0];
-    if (!app) {
-      console.log('  Nothing is playing.');
-      client.close();
-      process.exit(0);
-    }
-
-    console.log(`  Stopping "${app.displayName}"...`);
-    client.stop(app, (stopErr) => {
-      if (stopErr) {
-        console.error(`  Stop failed: ${stopErr.message}`);
+  client.connect(host, () => {
+    client.getStatus((err, status) => {
+      if (err) {
+        console.error(`Could not get device status: ${err.message}`);
         client.close();
         process.exit(1);
       }
-      console.log('  Stopped.');
-      client.close();
-      process.exit(0);
+
+      const app = status.applications?.[0];
+      if (!app) {
+        console.log('  Nothing is playing.');
+        client.close();
+        process.exit(0);
+      }
+
+      console.log(`  Stopping "${app.displayName}"...`);
+      // castv2-client's client.stop() crashes on application.close() internally.
+      // Launching a new app kills the current session, which stops playback.
+      client.launch(DefaultMediaReceiver, (launchErr) => {
+        if (launchErr) {
+          console.error(`  Stop failed: ${launchErr.message}`);
+          client.close();
+          process.exit(1);
+        }
+        console.log('  Stopped.');
+        client.close();
+        process.exit(0);
+      });
     });
   });
+}
+
+main().catch((err: Error) => {
+  console.error(`Failed: ${err.message}`);
+  process.exit(1);
 });
