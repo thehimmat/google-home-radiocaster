@@ -212,10 +212,15 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
           }
 
           // Step 7: load the stream URL (direct or proxied) into the receiver.
+          // streamType LIVE is required for HLS live streams — without it the
+          // Default Media Receiver treats the playlist as VOD and can reject it.
+          const isHls = stream.contentType === 'application/x-mpegURL'
+            || stream.contentType === 'application/vnd.apple.mpegurl';
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const media: any = {
             contentId: castUrl,
             contentType: stream.contentType,
+            streamType: isHls ? 'LIVE' : 'NONE',
             ...(metadata?.title || metadata?.artworkUrl ? {
               metadata: {
                 metadataType: 0,

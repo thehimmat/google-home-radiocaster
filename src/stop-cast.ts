@@ -5,7 +5,7 @@
  *   npm run stop-cast                   — stops the first device in your schedule
  *   npm run stop-cast "Kitchen Display" — stops a specific device by name
  */
-import { Client } from 'castv2-client';
+import { Client, DefaultMediaReceiver } from 'castv2-client';
 import { schedule } from './config';
 import { discoverDevice } from './cast';
 
@@ -55,9 +55,11 @@ async function main() {
       }
 
       console.log(`  Stopping "${app.displayName}"...`);
-      client.stop(app, (stopErr) => {
-        if (stopErr) {
-          console.error(`  Stop failed: ${stopErr.message}`);
+      // castv2-client's client.stop() crashes on application.close() internally.
+      // Launching a new app kills the current session, which stops playback.
+      client.launch(DefaultMediaReceiver, (launchErr) => {
+        if (launchErr) {
+          console.error(`  Stop failed: ${launchErr.message}`);
           client.close();
           process.exit(1);
         }
