@@ -96,8 +96,36 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
   console.log(`[ffmpeg:${station}] started (pid=${proc.pid}, start_number=${startNumber})`);
 }
 
+// ---------------------------------------------------------------------------
+// Watchdog — restarts FFmpeg if the playlist goes stale
+// ---------------------------------------------------------------------------
+
+// If no new HLS segment has been written in this window, the FFmpeg process is
+// stuck (e.g. internal reconnect loop after upstream drop). Killing it lets
+// the proc.on('exit') handler restart it cleanly.
+const WATCHDOG_INTERVAL_MS = 20_000;
+const WATCHDOG_STALE_MS = 30_000;
+
+function startWatchdog(station: string): void {
+  setInterval(() => {
+    try {
+      const age = Date.now() - fs.statSync(playlistPath(HLS_ROOT, station)).mtimeMs;
+      if (age > WATCHDOG_STALE_MS) {
+        const proc = ffmpegProcesses.get(station);
+        if (proc) {
+          console.log(`[watchdog:${station}] playlist stale (${Math.round(age / 1000)}s) — restarting FFmpeg`);
+          proc.kill('SIGKILL');
+        }
+      }
+    } catch {
+      // Playlist not yet created — FFmpeg still initializing, nothing to do.
+    }
+  }, WATCHDOG_INTERVAL_MS);
+}
+
 for (const [name, station] of Object.entries(STATIONS)) {
   startFfmpeg(name, station.url);
+  startWatchdog(name);
 }
 
 // ---------------------------------------------------------------------------
