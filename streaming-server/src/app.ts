@@ -1,9 +1,13 @@
 import express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, SpawnOptions } from 'child_process';
+import { buildAdtsArgs } from './ffmpeg-args';
 
 export type StationMap = Record<string, { url: string }>;
+
+/** Matches child_process.spawn — injectable so tests can fake FFmpeg. */
+export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
 const HLS_LIST_SIZE = 15;
 
@@ -34,6 +38,8 @@ export function createApp(
   hlsRoot: string,
   // Optional reference to live FFmpeg processes — used by /health to report liveness.
   ffmpegProcesses?: Map<string, ChildProcess>,
+  // Injectable spawn for the /stream endpoint — tests pass a fake.
+  spawnFn: SpawnFn = spawn,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -109,28 +115,16 @@ export function createApp(
 
     const upstreamUrl = stations[station].url;
 
-    const args = [
-      '-reconnect', '1',
-      '-reconnect_at_eof', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '30',
-      '-user_agent', 'WinampMPEG/5.0',
-      '-tls_verify', '0',
-      '-i', upstreamUrl,
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ac', '2',
-      '-f', 'adts',   // ADTS-framed AAC byte stream — correct format for audio/aac
-      'pipe:1',
-    ];
-
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    const proc = spawnFn('ffmpeg', buildAdtsArgs(upstreamUrl), { stdio: ['ignore', 'pipe', 'ignore'] });
     console.log(`[stream:${station}] cast client connected (pid=${proc.pid})`);
 
     res
       .set('Content-Type', 'audio/aac')
       .set('Cache-Control', 'no-cache, no-store')
       .set('Access-Control-Allow-Origin', '*');
+    // Send headers now rather than with FFmpeg's first byte — clients see the
+    // 200 immediately instead of waiting out FFmpeg's spin-up.
+    res.flushHeaders();
 
     proc.stdout?.pipe(res);
 

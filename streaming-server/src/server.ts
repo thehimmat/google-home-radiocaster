@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { buildHlsArgs } from './ffmpeg-args';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -54,26 +55,7 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
 
   const startNumber = getNextStartNumber(station);
 
-  const args = [
-    '-reconnect', '1',
-    '-reconnect_at_eof', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '30',
-    '-user_agent', 'WinampMPEG/5.0',
-    // SGPC uses a self-signed cert on port 8443.
-    '-tls_verify', '0',
-    '-i', upstreamUrl,
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ac', '2',
-    '-f', 'hls',
-    '-hls_time', '4',
-    '-hls_list_size', String(HLS_LIST_SIZE),
-    '-hls_flags', 'delete_segments+omit_endlist',
-    '-start_number', String(startNumber),
-    '-hls_segment_filename', 'seg%05d.ts',
-    'stream.m3u8',
-  ];
+  const args = buildHlsArgs(upstreamUrl, { listSize: HLS_LIST_SIZE, startNumber });
 
   // cwd:dir is critical — bare filenames in args are resolved relative to this
   // directory, so segments and playlist end up in /tmp/hls/{station}/ and the

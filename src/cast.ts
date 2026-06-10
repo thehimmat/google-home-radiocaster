@@ -20,8 +20,9 @@ interface StreamInfo {
  * Follows HTTP redirects to find the final URL, and reads the Content-Type
  * header so we can tell the Cast receiver exactly what format to expect.
  * Falls back to 'audio/mpeg' if the server doesn't respond or HEAD is blocked.
+ * Exported for tests; production callers go through castRadio.
  */
-function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<StreamInfo> {
+export function probeStream(url: string, maxHops = 5, allowInsecure = false, timeoutMs = 6000): Promise<StreamInfo> {
   return new Promise((resolve) => {
     const fallback = { url, contentType: 'audio/mpeg' };
     if (maxHops === 0) return resolve(fallback);
@@ -31,10 +32,10 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
     // SGPC (live.sgpc.net:8443) uses a self-signed cert — allowInsecure handles that
     // without disabling verification globally for all streams.
     const agentOpts = (url.startsWith('https') && allowInsecure) ? { rejectUnauthorized: false } : {};
-    const req = lib.request(url, { method: 'HEAD', timeout: 6000, ...agentOpts }, (res) => {
+    const req = lib.request(url, { method: 'HEAD', timeout: timeoutMs, ...agentOpts }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const next = new URL(res.headers.location, url).toString();
-        resolve(probeStream(next, maxHops - 1, allowInsecure));
+        resolve(probeStream(next, maxHops - 1, allowInsecure, timeoutMs));
       } else {
         const raw = res.headers['content-type'] ?? '';
         const detected = raw.split(';')[0].trim();
@@ -57,7 +58,7 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
       const tlsCodes = ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT',
         'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'ERR_TLS_CERT_ALTNAME_INVALID'];
       if (!allowInsecure && err.code && tlsCodes.includes(err.code)) {
-        resolve(probeStream(url, maxHops, true));
+        resolve(probeStream(url, maxHops, true, timeoutMs));
       } else {
         console.warn(`  Warning: stream probe failed (${err.code ?? err.message}) — falling back to audio/mpeg. If this is an HLS station, set contentType in config.ts to avoid this.`);
         resolve(fallback);
