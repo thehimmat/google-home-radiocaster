@@ -1,0 +1,233 @@
+/* Palette matches the cast receiver skin (streaming-server/public/cast-skin.html). */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-from: #1a1614;
+  --bg-to: #2a2520;
+  --ink: #fef8e8;
+  --ink-soft: #d4cdc6;
+  --ink-faint: #a8a09a;
+  --line: rgba(212, 205, 198, 0.45);
+  --card: rgba(255, 255, 255, 0.05);
+  --live: #6fd189;
+}
+
+html, body {
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Crimson Pro', Georgia, serif;
+  background: linear-gradient(135deg, var(--bg-from) 0%, var(--bg-to) 100%);
+  background-attachment: fixed;
+  color: var(--ink);
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 20px 120px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.logo {
+  height: 56px;
+  width: auto;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.stations {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.station-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.station-card:hover {
+  border-color: var(--ink-soft);
+}
+
+.station-card.selected {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+.station-art {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.station-art-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.station-art-placeholder svg {
+  width: 32px;
+  height: 32px;
+}
+
+.station-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.station-subtitle {
+  font-size: 14px;
+  color: var(--ink-faint);
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+.station-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.station-live.is-live .live-dot {
+  background: var(--live);
+  box-shadow: 0 0 6px var(--live);
+}
+
+.live-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink-faint);
+}
+
+.station-live.is-live .live-label {
+  color: var(--live);
+}
+
+.controls {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  background: rgba(26, 22, 20, 0.92);
+  border-top: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+}
+
+.play-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-soft);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.play-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.play-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.volume {
+  flex: 1;
+  accent-color: var(--ink-soft);
+}
+
+.cast-wrap {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+google-cast-launcher {
+  display: block;
+  width: 100%;
+  height: 100%;
+  --connected-color: var(--live);
+  --disconnected-color: var(--ink-soft);
+}
+
+.status {
+  position: fixed;
+  bottom: 86px;
+  left: 0;
+  right: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 20px;
+  font-size: 14px;
+  font-style: italic;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 22px;
+  }
+
+  .logo {
+    height: 44px;
+  }
+}

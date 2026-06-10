@@ -138,13 +138,14 @@
 <body>
   <div class="container">
     <div class="logo">
-      <img src="https://stream.atthebunga.com/logos/atthebunga-logo-1A.png" alt="atTheBunga" style="height: 80px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">
+      <!-- Relative paths so the page works from any origin it's served on -->
+      <img src="/logos/atthebunga-logo-1A.png" alt="atTheBunga" style="height: 80px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">
     </div>
 
     <div class="now-playing">
       <div class="artwork">
-        <!-- Logo as default artwork (cast protocol can override with album art) -->
-        <img id="artworkImage" src="https://stream.atthebunga.com/logos/atthebunga-logo-1A.png" alt="Album artwork" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #d4cdc6; object-fit: contain; background: #2a2520; padding: 20px;">
+        <!-- Logo as default artwork (sender metadata can override with station art) -->
+        <img id="artworkImage" src="/logos/atthebunga-logo-1A.png" alt="Album artwork" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #d4cdc6; object-fit: contain; background: #2a2520; padding: 20px;">
       </div>
 
       <div class="metadata">
@@ -153,38 +154,43 @@
         <div class="station-info" id="station">Stream atTheBunga</div>
       </div>
 
-      <div class="loading">
+      <div class="loading" id="loading">
         <div class="spinner"></div>
-        <div class="status-message">Connecting to stream...</div>
+        <div class="status-message" id="statusMessage">Connecting to stream...</div>
       </div>
     </div>
   </div>
 
+  <!-- CAF receiver framework: cast-media-player owns playback (audio included);
+       it stays hidden and the custom layout above is driven by PlayerDataBinder. -->
+  <cast-media-player style="display: none;"></cast-media-player>
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script>
-    // Cast receiver message handler
-    window.addEventListener('message', (event) => {
-      const data = event.data;
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerData = {};
+    const binder = new cast.framework.ui.PlayerDataBinder(playerData);
 
-      if (data && data.media) {
-        const media = data.media;
+    // Senders differ: the CLI sends GENERIC metadata (title/subtitle), the web
+    // player sends MusicTrack metadata (title/artist). Handle both.
+    binder.addEventListener(cast.framework.ui.PlayerDataEventType.MEDIA_INFO_CHANGED, (e) => {
+      const metadata = (e.value && e.value.metadata) || {};
+      document.getElementById('title').textContent = metadata.title || 'Now Playing';
+      document.getElementById('station').textContent =
+        metadata.subtitle || metadata.artist || 'Stream atTheBunga';
+      const image = metadata.images && metadata.images[0] && metadata.images[0].url;
+      document.getElementById('artworkImage').src = image || '/logos/atthebunga-logo-1A.png';
+    });
 
-        // Update metadata
-        document.getElementById('artist').textContent = media.metadata?.artist || 'Stream atTheBunga';
-        document.getElementById('title').textContent = media.metadata?.title || 'Now Playing';
-        document.getElementById('station').textContent = media.metadata?.subtitle || 'Stream atTheBunga';
-
-        // Update artwork if provided (otherwise keeps the logo)
-        if (media.metadata?.images && media.metadata.images[0]) {
-          const artworkImg = document.getElementById('artworkImage');
-          if (artworkImg) {
-            artworkImg.src = media.metadata.images[0].url;
-          }
-        }
+    binder.addEventListener(cast.framework.ui.PlayerDataEventType.STATE_CHANGED, (e) => {
+      const playing = e.value === cast.framework.ui.State.PLAYING;
+      document.getElementById('loading').style.display = playing ? 'none' : '';
+      if (!playing) {
+        document.getElementById('statusMessage').textContent =
+          e.value === cast.framework.ui.State.IDLE ? 'Waiting for audio stream...' : 'Connecting to stream...';
       }
     });
 
-    // Simple message log for debugging
-    console.log('Cast Skin loaded - ready for receiver messages');
+    context.start();
   </script>
 </body>
 </html>

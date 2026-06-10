@@ -90,6 +90,11 @@ describe('GET /health', () => {
     expect(res.body.stations).toHaveLength(1);
     expect(res.body.stations[0].name).toBe('test-station');
   });
+
+  it('returns CORS header so the web player can poll it', async () => {
+    const res = await request(app).get('/health');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
 });
 
 describe('HEAD /:station', () => {

@@ -77,6 +77,8 @@ export function createApp(
     const allHealthy = stationHealth.every((s) => s.segmentFresh !== false);
     res
       .status(allHealthy ? 200 : 503)
+      // The web player polls this cross-origin for the live indicators.
+      .set('Access-Control-Allow-Origin', '*')
       .json({ status: allHealthy ? 'ok' : 'degraded', stations: stationHealth });
   });
 

@@ -43,7 +43,7 @@ declare module 'castv2-client' {
   export class Client {
     connect(host: string, callback: () => void): void;
     launch(
-      app: unknown,
+      app: typeof DefaultMediaReceiver,
       callback: (err: Error | null, player: Player) => void
     ): void;
     stop(
@@ -59,6 +59,11 @@ declare module 'castv2-client' {
     on(event: 'error', handler: (err: Error) => void): this;
   }
 
-  // The Default Media Receiver app — plays audio/video without a custom receiver app.
-  export const DefaultMediaReceiver: unknown;
+  // Launchable receiver application. castv2-client reads the static APP_ID off
+  // the class passed to launch() and instantiates it for the session, so custom
+  // receivers are subclasses that override APP_ID (keeping the media channel).
+  export class DefaultMediaReceiver {
+    static APP_ID: string;
+    constructor(client: unknown, session: unknown);
+  }
 }

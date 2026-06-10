@@ -7,6 +7,23 @@ import { startProxy } from './proxy';
 const CAST_PORT = 8009;
 const DISCOVERY_TIMEOUT_MS = 12000;
 
+// Custom Cast receiver app "Stream atTheBunga" (registered at
+// cast.google.com/publish) — serves the branded now-playing screen at
+// stream.atthebunga.com/cast-skin.html. castv2-client launches the CLASS whose
+// static APP_ID names the receiver; subclassing DefaultMediaReceiver keeps the
+// standard media channel the rest of this file drives.
+//
+// While the receiver app is unpublished it only works on devices registered as
+// test devices in the Cast console. Set CAST_RECEIVER=default to fall back to
+// the stock Default Media Receiver (CC1AD845) at any time.
+class CustomMediaReceiver extends DefaultMediaReceiver {
+  static APP_ID = '85E83F4E';
+}
+
+function receiverApp(): typeof DefaultMediaReceiver {
+  return process.env.CAST_RECEIVER === 'default' ? DefaultMediaReceiver : CustomMediaReceiver;
+}
+
 // ---------------------------------------------------------------------------
 // Stream URL resolution
 // ---------------------------------------------------------------------------
@@ -225,8 +242,11 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
           });
         }
 
-        // Step 6: launch the Default Media Receiver (app ID CC1AD845).
-        client.launch(DefaultMediaReceiver, (err, player) => {
+        // Step 6: launch the receiver app (custom "Stream atTheBunga" unless
+        // CAST_RECEIVER=default).
+        const app = receiverApp();
+        console.log(`  Launching receiver ${app.APP_ID}${app === DefaultMediaReceiver ? ' (Default Media Receiver)' : ' (Stream atTheBunga)'}`);
+        client.launch(app, (err, player) => {
           if (err) {
             client.close();
             return reject(new Error(`Failed to launch receiver: ${err.message}`));
