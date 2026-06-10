@@ -4,7 +4,16 @@ import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
 import { StationBroadcaster, SpawnFn } from './broadcaster';
 
-export type StationMap = Record<string, { url: string }>;
+export interface StationConfig {
+  /** Upstream stream URL FFmpeg pulls from. */
+  url: string;
+  /** Display name shown by the web player and Cast metadata. Falls back to the slug. */
+  title?: string;
+  subtitle?: string;
+  artworkUrl?: string;
+}
+
+export type StationMap = Record<string, StationConfig>;
 
 export type { SpawnFn } from './broadcaster';
 
@@ -69,6 +78,21 @@ export function createApp(
     res
       .status(allHealthy ? 200 : 503)
       .json({ status: allHealthy ? 'ok' : 'degraded', stations: stationHealth });
+  });
+
+  // Station list for the web player: display metadata plus the paths clients
+  // should use — hlsPath for browsers (hls.js / Safari), streamPath for Cast.
+  // Registered before the /:station routes so the literal path wins.
+  app.get('/stations', (_req, res) => {
+    const list = Object.entries(stations).map(([slug, station]) => ({
+      slug,
+      title: station.title ?? slug,
+      subtitle: station.subtitle ?? null,
+      artworkUrl: station.artworkUrl ?? null,
+      hlsPath: `/${slug}`,
+      streamPath: `/${slug}/stream`,
+    }));
+    res.set('Access-Control-Allow-Origin', '*').json(list);
   });
 
   app.head('/:station', (req, res) => {

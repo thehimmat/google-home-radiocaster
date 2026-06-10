@@ -11,9 +11,14 @@ const HLS_ROOT = process.env.HLS_ROOT ?? '/tmp/hls';
 const STATIONS: StationMap = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
+    title: 'Golden Temple Radio',
+    subtitle: 'Amritsar',
+    artworkUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG',
   },
   'san-jose': {
     url: 'https://radio.sikhnet.com/proxy/channel18/live',
+    title: 'Gurdwara San Jose',
+    subtitle: 'San Jose, CA',
   },
 };
 
