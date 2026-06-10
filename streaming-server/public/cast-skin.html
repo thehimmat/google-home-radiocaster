@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream atTheBunga - Cast Receiver</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Crimson Pro', Georgia, serif;
+      background: linear-gradient(135deg, #1a1614 0%, #2a2520 100%);
+      color: #fef8e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 600px;
+      text-align: center;
+    }
+
+    .logo {
+      margin-bottom: 60px;
+      opacity: 0.95;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+    }
+
+    .logo img {
+      height: 80px;
+      width: auto;
+    }
+
+    .now-playing {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid #d4cdc6;
+      border-radius: 8px;
+      padding: 40px;
+      backdrop-filter: blur(10px);
+      margin-bottom: 30px;
+    }
+
+    .artwork {
+      margin-bottom: 30px;
+    }
+
+    .artwork img {
+      width: 200px;
+      height: 200px;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      border: 1px solid #d4cdc6;
+      object-fit: cover;
+    }
+
+    .metadata {
+      margin-top: 30px;
+    }
+
+    .artist {
+      font-size: 18px;
+      color: #d4cdc6;
+      font-weight: 500;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      opacity: 0.9;
+    }
+
+    .title {
+      font-size: 32px;
+      font-weight: 600;
+      color: #fef8e8;
+      line-height: 1.3;
+      margin-bottom: 20px;
+    }
+
+    .station-info {
+      font-size: 14px;
+      color: #a8a09a;
+      letter-spacing: 0.5px;
+    }
+
+    .loading {
+      margin-top: 50px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(212, 205, 198, 0.3);
+      border-top: 3px solid #d4cdc6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-message {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #a8a09a;
+      font-style: italic;
+    }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      .container {
+        padding: 20px;
+      }
+
+      .title {
+        font-size: 24px;
+      }
+
+      .artwork img {
+        width: 160px;
+        height: 160px;
+      }
+
+      .now-playing {
+        padding: 30px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <img src="https://stream.atthebunga.com/logos/atthebunga-logo-1A.png" alt="atTheBunga" style="height: 80px; width: auto; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">
+    </div>
+
+    <div class="now-playing">
+      <div class="artwork">
+        <!-- Logo as default artwork (cast protocol can override with album art) -->
+        <img id="artworkImage" src="https://stream.atthebunga.com/logos/atthebunga-logo-1A.png" alt="Album artwork" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #d4cdc6; object-fit: contain; background: #2a2520; padding: 20px;">
+      </div>
+
+      <div class="metadata">
+        <div class="artist" id="artist">Now Playing</div>
+        <div class="title" id="title">Waiting for audio stream...</div>
+        <div class="station-info" id="station">Stream atTheBunga</div>
+      </div>
+
+      <div class="loading">
+        <div class="spinner"></div>
+        <div class="status-message">Connecting to stream...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Cast receiver message handler
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+
+      if (data && data.media) {
+        const media = data.media;
+
+        // Update metadata
+        document.getElementById('artist').textContent = media.metadata?.artist || 'Stream atTheBunga';
+        document.getElementById('title').textContent = media.metadata?.title || 'Now Playing';
+        document.getElementById('station').textContent = media.metadata?.subtitle || 'Stream atTheBunga';
+
+        // Update artwork if provided (otherwise keeps the logo)
+        if (media.metadata?.images && media.metadata.images[0]) {
+          const artworkImg = document.getElementById('artworkImage');
+          if (artworkImg) {
+            artworkImg.src = media.metadata.images[0].url;
+          }
+        }
+      }
+    });
+
+    // Simple message log for debugging
+    console.log('Cast Skin loaded - ready for receiver messages');
+  </script>
+</body>
+</html>

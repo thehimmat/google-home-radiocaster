@@ -44,6 +44,9 @@ export function createApp(
   const app = express();
   app.set('trust proxy', true);
 
+  // Serve static files (logos, cast skin, etc.)
+  app.use(express.static(path.join(__dirname, '..', 'public')));
+
   app.get('/health', (_req, res) => {
     const stationHealth = Object.keys(stations).map((name) => {
       const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
