@@ -45,7 +45,11 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
         resolve({ url, contentType: isAudio ? detected : 'audio/mpeg' });
       }
     });
-    req.on('timeout', () => { req.destroy(); resolve(fallback); });
+    req.on('timeout', () => {
+      req.destroy();
+      console.warn(`  Warning: stream probe timed out for ${url} — falling back to audio/mpeg. If this is an HLS station, set contentType in config.ts to avoid this.`);
+      resolve(fallback);
+    });
     req.on('error', (err: NodeJS.ErrnoException) => {
       // On a TLS error, retry once without certificate verification.
       // This handles self-signed certs (e.g. SGPC live.sgpc.net:8443) without
@@ -55,6 +59,7 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
       if (!allowInsecure && err.code && tlsCodes.includes(err.code)) {
         resolve(probeStream(url, maxHops, true));
       } else {
+        console.warn(`  Warning: stream probe failed (${err.code ?? err.message}) — falling back to audio/mpeg. If this is an HLS station, set contentType in config.ts to avoid this.`);
         resolve(fallback);
       }
     });
@@ -122,6 +127,13 @@ export interface CastOptions {
   /** Optional direct IP — bypasses mDNS discovery when set. */
   deviceIp?: string;
   /**
+   * Known content-type for this stream. If provided, the stream probe is skipped
+   * entirely and this value is used directly. Set this for HLS relay stations
+   * (application/x-mpegURL) so a transient server outage can never cause the probe
+   * to fall back to audio/mpeg and send the wrong content-type to the Cast device.
+   */
+  contentType?: string;
+  /**
    * When true, audio is relayed through a local HTTP proxy on this machine
    * instead of being fetched directly by the Cast device. Only needed if the
    * device can't reach the stream URL (AP isolation, CDN SSL issues, etc.).
@@ -148,7 +160,7 @@ export interface CastResult {
  * server if proxy mode was used.
  */
 export async function castRadio(options: CastOptions): Promise<CastResult> {
-  const { streamUrl, deviceName, volume, deviceIp, useProxy = false, metadata } = options;
+  const { streamUrl, deviceName, volume, deviceIp, contentType, useProxy = false, metadata } = options;
 
   // Step 1: resolve the device's IP address.
   let host: string;
@@ -160,13 +172,21 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
     host = await discoverDevice(deviceName);
   }
 
-  // Step 2: probe the external stream URL to detect content type and follow redirects.
-  console.log(`  Probing stream URL...`);
-  const stream = await probeStream(streamUrl);
-  if (stream.url !== streamUrl) {
-    console.log(`  Redirected to: ${stream.url}`);
+  // Step 2: resolve content-type. If the caller already knows the content-type
+  // (e.g. from config.ts), skip the probe entirely — a transient server outage
+  // can't cause a fallback to audio/mpeg and a subsequent "Load failed" on the device.
+  let stream: StreamInfo;
+  if (contentType) {
+    console.log(`  Content-Type: ${contentType} (from config, skipping probe)`);
+    stream = { url: streamUrl, contentType };
+  } else {
+    console.log(`  Probing stream URL...`);
+    stream = await probeStream(streamUrl);
+    if (stream.url !== streamUrl) {
+      console.log(`  Redirected to: ${stream.url}`);
+    }
+    console.log(`  Content-Type: ${stream.contentType}`);
   }
-  console.log(`  Content-Type: ${stream.contentType}`);
 
   // Step 3 (optional): start a local HTTP proxy.
   // Only used when useProxy is true — e.g. if the device can't reach the CDN

@@ -6,7 +6,7 @@
 //   1. Find the upstream stream URL (ends in .mp3, .aac, or is a direct HTTP
 //      audio stream). The station's website or streamurl.site can help.
 //   2. Add an entry to STATIONS in streaming-server/src/server.ts using that
-//      upstream URL, then push so Railway auto-deploys.
+//      upstream URL, then push so Fly.io auto-deploys.
 //   3. Add an entry here pointing to https://stream.atthebunga.com/<your-slug>.
 //
 // CRON SYNTAX — five fields, left to right:
@@ -36,6 +36,12 @@
 export interface StationConfig {
   /** Direct audio stream URL */
   url: string;
+  /**
+   * Known content-type for this stream — if set, the stream probe is skipped entirely.
+   * Use this for HLS relay stations (application/x-mpegURL) so a probe failure can
+   * never cause the Cast device to receive the wrong content-type and reject the stream.
+   */
+  contentType?: string;
   /** Display title shown on the Cast device screen */
   title?: string;
   /** Subtitle shown below the title (e.g. city or station tagline) */
@@ -65,14 +71,16 @@ export interface ScheduleEntry {
 // -----------------------------------------------------------------------------
 export const stations: Record<string, StationConfig> = {
   "Golden Temple": {
-    url: "https://stream.atthebunga.com/golden-temple",
+    url: "https://stream.atthebunga.com/golden-temple/stream",
+    contentType: "audio/aac",
     title: "Golden Temple Radio",
     subtitle: "Amritsar",
     artworkUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG",
   },
 
   "San Jose Gurdwara": {
-    url: "https://stream.atthebunga.com/san-jose",
+    url: "https://stream.atthebunga.com/san-jose/stream",
+    contentType: "audio/aac",
     title: "Gurdwara San Jose",
     subtitle: "San Jose, CA",
   },

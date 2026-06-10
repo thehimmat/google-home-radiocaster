@@ -1,0 +1,35 @@
+# Fly.io configuration for the radio streaming server.
+# Deploy from this directory: cd streaming-server && flyctl deploy
+#
+# First-time setup:
+#   flyctl apps create <your-app-name>   # pick a unique name, update 'app' below
+#   flyctl volumes create hls_data --size 1 --region sjc
+#   flyctl deploy
+
+app = "atthebunga-radio"
+primary_region = "sjc"
+
+[build]
+
+[env]
+  PORT = "3001"
+  HLS_ROOT = "/data/hls"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # CRITICAL: must be "off" — autostop would kill FFmpeg processes between listener sessions.
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "hls_data"
+  destination = "/data/hls"
+  # Persistent volume — HLS segments survive container restarts.
+  # Without this, a restart wipes /tmp/hls and the Cast device gets 404s on segments.

@@ -43,6 +43,7 @@ export function startScheduler(): void {
       try {
         const { stopProxy } = await castRadio({
           streamUrl: station.url,
+          contentType: station.contentType,
           deviceName: entry.deviceName,
           volume: entry.volume,
           deviceIp: entry.deviceIp,

@@ -51,6 +51,7 @@ console.log(`\nCasting "${stationArg}" to "${deviceName}"${useProxy ? ' via loca
 
 castRadio({
   streamUrl: stationConfig.url,
+  contentType: stationConfig.contentType,
   deviceName,
   volume: volumeOverride ?? scheduleEntry?.volume,
   deviceIp: scheduleEntry?.deviceIp,

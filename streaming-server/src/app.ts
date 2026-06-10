@@ -1,7 +1,7 @@
 import express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 
 export type StationMap = Record<string, { url: string }>;
 
@@ -95,6 +95,51 @@ export function createApp(
       .set('Cache-Control', 'no-cache, no-store')
       .set('Access-Control-Allow-Origin', '*')
       .send(rewritten);
+  });
+
+  // Raw audio stream endpoint — used for Cast devices.
+  // Pipes FFmpeg AAC output directly to the HTTP response, avoiding HLS entirely.
+  // Cast devices receive a plain audio/aac stream (same model as SomaFM MP3), which is
+  // more reliable than HLS on Google Nest Hub devices.
+  // This endpoint stays open for the duration of playback; Fly.io has no connection
+  // timeout for active streams so this works fine (unlike Railway's 5-min kill).
+  app.get('/:station/stream', (req, res) => {
+    const { station } = req.params;
+    if (!stations[station]) { res.sendStatus(404); return; }
+
+    const upstreamUrl = stations[station].url;
+
+    const args = [
+      '-reconnect', '1',
+      '-reconnect_at_eof', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '30',
+      '-user_agent', 'WinampMPEG/5.0',
+      '-tls_verify', '0',
+      '-i', upstreamUrl,
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ac', '2',
+      '-f', 'adts',   // ADTS-framed AAC byte stream — correct format for audio/aac
+      'pipe:1',
+    ];
+
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    console.log(`[stream:${station}] cast client connected (pid=${proc.pid})`);
+
+    res
+      .set('Content-Type', 'audio/aac')
+      .set('Cache-Control', 'no-cache, no-store')
+      .set('Access-Control-Allow-Origin', '*');
+
+    proc.stdout?.pipe(res);
+
+    const cleanup = () => {
+      proc.kill('SIGKILL');
+      console.log(`[stream:${station}] cast client disconnected (pid=${proc.pid})`);
+    };
+    req.on('close', cleanup);
+    proc.on('exit', () => { if (!res.writableEnded) res.end(); });
   });
 
   app.get('/:station/:file', (req, res) => {

@@ -3,7 +3,8 @@ import { spawn, ChildProcess } from 'child_process';
 import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 
 const PORT = process.env.PORT ?? 3001;
-const HLS_ROOT = '/tmp/hls';
+// Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
+const HLS_ROOT = process.env.HLS_ROOT ?? '/tmp/hls';
 
 const STATIONS: StationMap = {
   'golden-temple': {
