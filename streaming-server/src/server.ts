@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { StationBroadcaster } from './broadcaster';
 import { buildHlsArgs } from './ffmpeg-args';
 
 const PORT = process.env.PORT ?? 3001;
@@ -21,12 +22,18 @@ const STATIONS: StationMap = {
 // ---------------------------------------------------------------------------
 
 const ffmpegProcesses = new Map<string, ChildProcess>();
+// /stream broadcasters — created lazily by the app on first listener.
+const broadcasters = new Map<string, StationBroadcaster>();
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — killing FFmpeg processes...');
   for (const [name, proc] of ffmpegProcesses) {
     proc.kill();
     console.log(`  killed [ffmpeg:${name}]`);
+  }
+  for (const [name, broadcaster] of broadcasters) {
+    broadcaster.stop();
+    console.log(`  stopped [stream:${name}]`);
   }
   process.exit(0);
 });
@@ -115,7 +122,7 @@ for (const [name, station] of Object.entries(STATIONS)) {
 // HTTP server
 // ---------------------------------------------------------------------------
 
-const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses);
+const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);

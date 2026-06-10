@@ -1,13 +1,12 @@
 import express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ChildProcess, spawn, SpawnOptions } from 'child_process';
-import { buildAdtsArgs } from './ffmpeg-args';
+import { ChildProcess, spawn } from 'child_process';
+import { StationBroadcaster, SpawnFn } from './broadcaster';
 
 export type StationMap = Record<string, { url: string }>;
 
-/** Matches child_process.spawn — injectable so tests can fake FFmpeg. */
-export type SpawnFn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+export type { SpawnFn } from './broadcaster';
 
 const HLS_LIST_SIZE = 15;
 
@@ -40,6 +39,9 @@ export function createApp(
   ffmpegProcesses?: Map<string, ChildProcess>,
   // Injectable spawn for the /stream endpoint — tests pass a fake.
   spawnFn: SpawnFn = spawn,
+  // Broadcaster registry. server.ts passes its own map so SIGTERM can stop()
+  // them; tests pre-seed instances with short linger windows.
+  broadcasters: Map<string, StationBroadcaster> = new Map(),
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -107,19 +109,13 @@ export function createApp(
   });
 
   // Raw audio stream endpoint — used for Cast devices.
-  // Pipes FFmpeg AAC output directly to the HTTP response, avoiding HLS entirely.
-  // Cast devices receive a plain audio/aac stream (same model as SomaFM MP3), which is
-  // more reliable than HLS on Google Nest Hub devices.
-  // This endpoint stays open for the duration of playback; Fly.io has no connection
-  // timeout for active streams so this works fine (unlike Railway's 5-min kill).
+  // A per-station broadcaster runs ONE FFmpeg (ADTS-framed AAC) shared by all
+  // connected listeners; per-listener FFmpeg processes would exhaust the box.
+  // This endpoint stays open for the duration of playback; Fly.io has no
+  // connection timeout for active streams (unlike Railway's 5-min kill).
   app.get('/:station/stream', (req, res) => {
     const { station } = req.params;
     if (!stations[station]) { res.sendStatus(404); return; }
-
-    const upstreamUrl = stations[station].url;
-
-    const proc = spawnFn('ffmpeg', buildAdtsArgs(upstreamUrl), { stdio: ['ignore', 'pipe', 'ignore'] });
-    console.log(`[stream:${station}] cast client connected (pid=${proc.pid})`);
 
     res
       .set('Content-Type', 'audio/aac')
@@ -129,14 +125,12 @@ export function createApp(
     // 200 immediately instead of waiting out FFmpeg's spin-up.
     res.flushHeaders();
 
-    proc.stdout?.pipe(res);
-
-    const cleanup = () => {
-      proc.kill('SIGKILL');
-      console.log(`[stream:${station}] cast client disconnected (pid=${proc.pid})`);
-    };
-    req.on('close', cleanup);
-    proc.on('exit', () => { if (!res.writableEnded) res.end(); });
+    let broadcaster = broadcasters.get(station);
+    if (!broadcaster) {
+      broadcaster = new StationBroadcaster(station, stations[station].url, spawnFn);
+      broadcasters.set(station, broadcaster);
+    }
+    broadcaster.addClient(res);
   });
 
   app.get('/:station/:file', (req, res) => {
