@@ -5,8 +5,11 @@
 // single source of truth for them. If a station needs a new input quirk
 // (user-agent, TLS, reconnect tuning), change it here and both paths get it.
 
-/** Segment length in seconds for the HLS pipeline. */
-export const HLS_SEGMENT_SECONDS = 4;
+/**
+ * Segment length in seconds for the HLS pipeline. 6s (not 4s) keeps the R2
+ * archiver's PUT volume inside the free tier's 1M Class-A ops/month.
+ */
+export const HLS_SEGMENT_SECONDS = 6;
 
 /**
  * Input-side flags: keep the upstream connection alive through drops, present
