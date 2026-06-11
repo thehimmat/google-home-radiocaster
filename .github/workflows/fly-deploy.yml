@@ -1,0 +1,25 @@
+name: Deploy streaming server to Fly.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'streaming-server/**'
+      - '.github/workflows/fly-deploy.yml'
+
+# One deploy at a time; a queued push waits for the current deploy to finish
+# rather than racing it.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        working-directory: streaming-server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -2,8 +2,20 @@ import express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
+import { StationBroadcaster, SpawnFn } from './broadcaster';
 
-export type StationMap = Record<string, { url: string }>;
+export interface StationConfig {
+  /** Upstream stream URL FFmpeg pulls from. */
+  url: string;
+  /** Display name shown by the web player and Cast metadata. Falls back to the slug. */
+  title?: string;
+  subtitle?: string;
+  artworkUrl?: string;
+}
+
+export type StationMap = Record<string, StationConfig>;
+
+export type { SpawnFn } from './broadcaster';
 
 const HLS_LIST_SIZE = 15;
 
@@ -34,9 +46,17 @@ export function createApp(
   hlsRoot: string,
   // Optional reference to live FFmpeg processes — used by /health to report liveness.
   ffmpegProcesses?: Map<string, ChildProcess>,
+  // Injectable spawn for the /stream endpoint — tests pass a fake.
+  spawnFn: SpawnFn = spawn,
+  // Broadcaster registry. server.ts passes its own map so SIGTERM can stop()
+  // them; tests pre-seed instances with short linger windows.
+  broadcasters: Map<string, StationBroadcaster> = new Map(),
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
+
+  // Serve static files (logos, cast skin, etc.)
+  app.use(express.static(path.join(__dirname, '..', 'public')));
 
   app.get('/health', (_req, res) => {
     const stationHealth = Object.keys(stations).map((name) => {
@@ -57,7 +77,24 @@ export function createApp(
     const allHealthy = stationHealth.every((s) => s.segmentFresh !== false);
     res
       .status(allHealthy ? 200 : 503)
+      // The web player polls this cross-origin for the live indicators.
+      .set('Access-Control-Allow-Origin', '*')
       .json({ status: allHealthy ? 'ok' : 'degraded', stations: stationHealth });
+  });
+
+  // Station list for the web player: display metadata plus the paths clients
+  // should use — hlsPath for browsers (hls.js / Safari), streamPath for Cast.
+  // Registered before the /:station routes so the literal path wins.
+  app.get('/stations', (_req, res) => {
+    const list = Object.entries(stations).map(([slug, station]) => ({
+      slug,
+      title: station.title ?? slug,
+      subtitle: station.subtitle ?? null,
+      artworkUrl: station.artworkUrl ?? null,
+      hlsPath: `/${slug}`,
+      streamPath: `/${slug}/stream`,
+    }));
+    res.set('Access-Control-Allow-Origin', '*').json(list);
   });
 
   app.head('/:station', (req, res) => {
@@ -98,48 +135,28 @@ export function createApp(
   });
 
   // Raw audio stream endpoint — used for Cast devices.
-  // Pipes FFmpeg AAC output directly to the HTTP response, avoiding HLS entirely.
-  // Cast devices receive a plain audio/aac stream (same model as SomaFM MP3), which is
-  // more reliable than HLS on Google Nest Hub devices.
-  // This endpoint stays open for the duration of playback; Fly.io has no connection
-  // timeout for active streams so this works fine (unlike Railway's 5-min kill).
+  // A per-station broadcaster runs ONE FFmpeg (ADTS-framed AAC) shared by all
+  // connected listeners; per-listener FFmpeg processes would exhaust the box.
+  // This endpoint stays open for the duration of playback; Fly.io has no
+  // connection timeout for active streams (unlike Railway's 5-min kill).
   app.get('/:station/stream', (req, res) => {
     const { station } = req.params;
     if (!stations[station]) { res.sendStatus(404); return; }
-
-    const upstreamUrl = stations[station].url;
-
-    const args = [
-      '-reconnect', '1',
-      '-reconnect_at_eof', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '30',
-      '-user_agent', 'WinampMPEG/5.0',
-      '-tls_verify', '0',
-      '-i', upstreamUrl,
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ac', '2',
-      '-f', 'adts',   // ADTS-framed AAC byte stream — correct format for audio/aac
-      'pipe:1',
-    ];
-
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] });
-    console.log(`[stream:${station}] cast client connected (pid=${proc.pid})`);
 
     res
       .set('Content-Type', 'audio/aac')
       .set('Cache-Control', 'no-cache, no-store')
       .set('Access-Control-Allow-Origin', '*');
+    // Send headers now rather than with FFmpeg's first byte — clients see the
+    // 200 immediately instead of waiting out FFmpeg's spin-up.
+    res.flushHeaders();
 
-    proc.stdout?.pipe(res);
-
-    const cleanup = () => {
-      proc.kill('SIGKILL');
-      console.log(`[stream:${station}] cast client disconnected (pid=${proc.pid})`);
-    };
-    req.on('close', cleanup);
-    proc.on('exit', () => { if (!res.writableEnded) res.end(); });
+    let broadcaster = broadcasters.get(station);
+    if (!broadcaster) {
+      broadcaster = new StationBroadcaster(station, stations[station].url, spawnFn);
+      broadcasters.set(station, broadcaster);
+    }
+    broadcaster.addClient(res);
   });
 
   app.get('/:station/:file', (req, res) => {

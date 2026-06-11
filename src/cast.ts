@@ -7,6 +7,23 @@ import { startProxy } from './proxy';
 const CAST_PORT = 8009;
 const DISCOVERY_TIMEOUT_MS = 12000;
 
+// Custom Cast receiver app "Stream atTheBunga" (registered at
+// cast.google.com/publish) — serves the branded now-playing screen at
+// stream.atthebunga.com/cast-skin.html. castv2-client launches the CLASS whose
+// static APP_ID names the receiver; subclassing DefaultMediaReceiver keeps the
+// standard media channel the rest of this file drives.
+//
+// While the receiver app is unpublished it only works on devices registered as
+// test devices in the Cast console. Set CAST_RECEIVER=default to fall back to
+// the stock Default Media Receiver (CC1AD845) at any time.
+class CustomMediaReceiver extends DefaultMediaReceiver {
+  static APP_ID = '85E83F4E';
+}
+
+function receiverApp(): typeof DefaultMediaReceiver {
+  return process.env.CAST_RECEIVER === 'default' ? DefaultMediaReceiver : CustomMediaReceiver;
+}
+
 // ---------------------------------------------------------------------------
 // Stream URL resolution
 // ---------------------------------------------------------------------------
@@ -20,8 +37,9 @@ interface StreamInfo {
  * Follows HTTP redirects to find the final URL, and reads the Content-Type
  * header so we can tell the Cast receiver exactly what format to expect.
  * Falls back to 'audio/mpeg' if the server doesn't respond or HEAD is blocked.
+ * Exported for tests; production callers go through castRadio.
  */
-function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<StreamInfo> {
+export function probeStream(url: string, maxHops = 5, allowInsecure = false, timeoutMs = 6000): Promise<StreamInfo> {
   return new Promise((resolve) => {
     const fallback = { url, contentType: 'audio/mpeg' };
     if (maxHops === 0) return resolve(fallback);
@@ -31,10 +49,10 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
     // SGPC (live.sgpc.net:8443) uses a self-signed cert — allowInsecure handles that
     // without disabling verification globally for all streams.
     const agentOpts = (url.startsWith('https') && allowInsecure) ? { rejectUnauthorized: false } : {};
-    const req = lib.request(url, { method: 'HEAD', timeout: 6000, ...agentOpts }, (res) => {
+    const req = lib.request(url, { method: 'HEAD', timeout: timeoutMs, ...agentOpts }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         const next = new URL(res.headers.location, url).toString();
-        resolve(probeStream(next, maxHops - 1, allowInsecure));
+        resolve(probeStream(next, maxHops - 1, allowInsecure, timeoutMs));
       } else {
         const raw = res.headers['content-type'] ?? '';
         const detected = raw.split(';')[0].trim();
@@ -57,7 +75,7 @@ function probeStream(url: string, maxHops = 5, allowInsecure = false): Promise<S
       const tlsCodes = ['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT',
         'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'SELF_SIGNED_CERT_IN_CHAIN', 'ERR_TLS_CERT_ALTNAME_INVALID'];
       if (!allowInsecure && err.code && tlsCodes.includes(err.code)) {
-        resolve(probeStream(url, maxHops, true));
+        resolve(probeStream(url, maxHops, true, timeoutMs));
       } else {
         console.warn(`  Warning: stream probe failed (${err.code ?? err.message}) — falling back to audio/mpeg. If this is an HLS station, set contentType in config.ts to avoid this.`);
         resolve(fallback);
@@ -224,8 +242,11 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
           });
         }
 
-        // Step 6: launch the Default Media Receiver (app ID CC1AD845).
-        client.launch(DefaultMediaReceiver, (err, player) => {
+        // Step 6: launch the receiver app (custom "Stream atTheBunga" unless
+        // CAST_RECEIVER=default).
+        const app = receiverApp();
+        console.log(`  Launching receiver ${app.APP_ID}${app === DefaultMediaReceiver ? ' (Default Media Receiver)' : ' (Stream atTheBunga)'}`);
+        client.launch(app, (err, player) => {
           if (err) {
             client.close();
             return reject(new Error(`Failed to launch receiver: ${err.message}`));

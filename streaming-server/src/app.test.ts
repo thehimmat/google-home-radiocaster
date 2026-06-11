@@ -34,12 +34,66 @@ afterAll(() => {
 
 const app = createApp(STATIONS, FIXTURE_ROOT);
 
+describe('GET /stations', () => {
+  // Own app instance: the shared fixture has exactly one station and /health
+  // assertions depend on that.
+  const STATIONS_WITH_META: StationMap = {
+    'golden-temple': {
+      url: 'https://example.com/upstream',
+      title: 'Golden Temple Radio',
+      subtitle: 'Amritsar',
+      artworkUrl: 'https://example.com/art.jpg',
+    },
+    'bare-station': { url: 'https://example.com/other' },
+  };
+  const metaApp = createApp(STATIONS_WITH_META, FIXTURE_ROOT);
+
+  it('lists every station with metadata and client paths', async () => {
+    const res = await request(metaApp).get('/stations');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      {
+        slug: 'golden-temple',
+        title: 'Golden Temple Radio',
+        subtitle: 'Amritsar',
+        artworkUrl: 'https://example.com/art.jpg',
+        hlsPath: '/golden-temple',
+        streamPath: '/golden-temple/stream',
+      },
+      {
+        slug: 'bare-station',
+        title: 'bare-station',
+        subtitle: null,
+        artworkUrl: null,
+        hlsPath: '/bare-station',
+        streamPath: '/bare-station/stream',
+      },
+    ]);
+  });
+
+  it('returns CORS header so the web player can fetch it cross-origin', async () => {
+    const res = await request(metaApp).get('/stations');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('is not shadowed by the station routes', async () => {
+    // "stations" must never be treated as a station slug.
+    const res = await request(metaApp).head('/stations');
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('GET /health', () => {
   it('returns 200 with station list', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body.stations).toHaveLength(1);
     expect(res.body.stations[0].name).toBe('test-station');
+  });
+
+  it('returns CORS header so the web player can poll it', async () => {
+    const res = await request(app).get('/health');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 });
 

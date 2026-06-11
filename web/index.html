@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gurbani Radio - atTheBunga</title>
+  <meta name="description" content="Listen to live Gurbani radio from Sri Harmandir Sahib, Amritsar, and cast it to your speakers.">
+  <link rel="icon" type="image/png" href="https://stream.atthebunga.com/logos/atthebunga-logo-1A.png">
+  <link rel="stylesheet" href="/src/style.css">
+  <script>
+    // Must be defined before the gstatic script executes (it is async and can
+    // beat any module script); cast-controller.ts awaits this promise.
+    window.castApiReady = new Promise(function (resolve) {
+      window.__onGCastApiAvailable = function (available) { resolve(available); };
+    });
+  </script>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

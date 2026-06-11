@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
+import { StationBroadcaster } from './broadcaster';
+import { buildHlsArgs } from './ffmpeg-args';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -9,9 +12,14 @@ const HLS_ROOT = process.env.HLS_ROOT ?? '/tmp/hls';
 const STATIONS: StationMap = {
   'golden-temple': {
     url: 'https://live.sgpc.net:8443/',
+    title: 'Golden Temple Radio',
+    subtitle: 'Amritsar',
+    artworkUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG',
   },
   'san-jose': {
     url: 'https://radio.sikhnet.com/proxy/channel18/live',
+    title: 'Gurdwara San Jose',
+    subtitle: 'San Jose, CA',
   },
 };
 
@@ -20,12 +28,18 @@ const STATIONS: StationMap = {
 // ---------------------------------------------------------------------------
 
 const ffmpegProcesses = new Map<string, ChildProcess>();
+// /stream broadcasters — created lazily by the app on first listener.
+const broadcasters = new Map<string, StationBroadcaster>();
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — killing FFmpeg processes...');
   for (const [name, proc] of ffmpegProcesses) {
     proc.kill();
     console.log(`  killed [ffmpeg:${name}]`);
+  }
+  for (const [name, broadcaster] of broadcasters) {
+    broadcaster.stop();
+    console.log(`  stopped [stream:${name}]`);
   }
   process.exit(0);
 });
@@ -54,26 +68,7 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
 
   const startNumber = getNextStartNumber(station);
 
-  const args = [
-    '-reconnect', '1',
-    '-reconnect_at_eof', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '30',
-    '-user_agent', 'WinampMPEG/5.0',
-    // SGPC uses a self-signed cert on port 8443.
-    '-tls_verify', '0',
-    '-i', upstreamUrl,
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ac', '2',
-    '-f', 'hls',
-    '-hls_time', '4',
-    '-hls_list_size', String(HLS_LIST_SIZE),
-    '-hls_flags', 'delete_segments+omit_endlist',
-    '-start_number', String(startNumber),
-    '-hls_segment_filename', 'seg%05d.ts',
-    'stream.m3u8',
-  ];
+  const args = buildHlsArgs(upstreamUrl, { listSize: HLS_LIST_SIZE, startNumber });
 
   // cwd:dir is critical — bare filenames in args are resolved relative to this
   // directory, so segments and playlist end up in /tmp/hls/{station}/ and the
@@ -130,10 +125,26 @@ for (const [name, station] of Object.entries(STATIONS)) {
 }
 
 // ---------------------------------------------------------------------------
+// R2 segment archiver (opt-in via R2_* env vars) — feeds the future
+// time-shift feature; a 24h R2 lifecycle rule handles cleanup
+// ---------------------------------------------------------------------------
+
+const archiverEnv = archiverEnvFromProcess();
+if (archiverEnv) {
+  const uploader = createR2Uploader(archiverEnv);
+  for (const name of Object.keys(STATIONS)) {
+    new StationArchiver(name, hlsDir(HLS_ROOT, name), uploader).start();
+  }
+  console.log(`[archiver] enabled — uploading segments to bucket "${archiverEnv.bucket}"`);
+} else {
+  console.log('[archiver] R2 env vars not set — segment archiving disabled');
+}
+
+// ---------------------------------------------------------------------------
 // HTTP server
 // ---------------------------------------------------------------------------
 
-const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses);
+const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);
