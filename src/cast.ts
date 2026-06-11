@@ -243,11 +243,21 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
         }
 
         // Step 6: launch the receiver app (custom "Stream atTheBunga" unless
-        // CAST_RECEIVER=default).
-        const app = receiverApp();
+        // CAST_RECEIVER=default). An unpublished custom receiver returns
+        // NOT_FOUND on devices that aren't registered for testing in the Cast
+        // console — fall back to the stock receiver so a scheduled cast can
+        // never fail just because the branded skin is unavailable.
+        const tryLaunch = (app: typeof DefaultMediaReceiver) => {
         console.log(`  Launching receiver ${app.APP_ID}${app === DefaultMediaReceiver ? ' (Default Media Receiver)' : ' (Stream atTheBunga)'}`);
         client.launch(app, (err, player) => {
           if (err) {
+            if (app !== DefaultMediaReceiver && err.message.includes('NOT_FOUND')) {
+              console.warn(
+                '  Custom receiver unavailable on this device (NOT_FOUND) — falling back to the Default Media Receiver.\n' +
+                '  For the branded screen, register this device for testing in the Cast console and reboot it.'
+              );
+              return tryLaunch(DefaultMediaReceiver);
+            }
             client.close();
             return reject(new Error(`Failed to launch receiver: ${err.message}`));
           }
@@ -296,6 +306,9 @@ export async function castRadio(options: CastOptions): Promise<CastResult> {
             }
           });
         });
+        };
+
+        tryLaunch(receiverApp());
       });
     });
   } catch (err) {
