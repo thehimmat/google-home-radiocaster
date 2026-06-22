@@ -1,10 +1,11 @@
-import { createElement, Pause, Play, RadioTower } from 'lucide';
+import { Cast, createElement, Pause, Play, RadioTower } from 'lucide';
 import type { Station } from './types';
 
 export interface UICallbacks {
   onSelectStation: (slug: string) => void;
   onTogglePlay: () => void;
   onVolume: (level: number) => void;
+  onCast: () => void;
 }
 
 /**
@@ -17,6 +18,7 @@ export class UI {
   private readonly playButton: HTMLButtonElement;
   private readonly volumeSlider: HTMLInputElement;
   private readonly castWrap: HTMLElement;
+  private readonly castButton: HTMLButtonElement;
   private readonly statusLine: HTMLElement;
   private readonly liveDots = new Map<string, HTMLElement>();
   private readonly cards = new Map<string, HTMLElement>();
@@ -57,10 +59,20 @@ export class UI {
       this.callbacks.onVolume(Number(this.volumeSlider.value) / 100);
     });
 
-    // Hidden until the Cast framework reports availability (Chrome only).
+    // Our own Cast button, shown once the framework is available (Chrome only).
+    // We deliberately avoid <google-cast-launcher>: it hides itself until Chrome
+    // has discovered devices, but Chrome won't discover them without a user
+    // gesture, so users were left with no button to click. This button is always
+    // visible (once castable) and calls requestSession() on click, which both
+    // triggers discovery and opens the picker.
     this.castWrap = el('div', 'cast-wrap');
     this.castWrap.hidden = true;
-    this.castWrap.innerHTML = '<google-cast-launcher></google-cast-launcher>';
+    this.castButton = document.createElement('button');
+    this.castButton.className = 'cast-button';
+    this.castButton.setAttribute('aria-label', 'Cast to a device');
+    this.castButton.append(createElement(Cast));
+    this.castButton.addEventListener('click', () => this.callbacks.onCast());
+    this.castWrap.append(this.castButton);
 
     this.statusLine = el('div', 'status');
 
@@ -144,6 +156,7 @@ export class UI {
 
   setCasting(casting: boolean): void {
     document.body.classList.toggle('casting', casting);
+    this.castButton.classList.toggle('is-casting', casting);
     this.setStatus(casting ? 'Casting to your speaker' : '');
   }
 

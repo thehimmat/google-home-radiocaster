@@ -28,6 +28,7 @@ function makeUI() {
     onSelectStation: vi.fn(),
     onTogglePlay: vi.fn(),
     onVolume: vi.fn(),
+    onCast: vi.fn(),
   };
   const ui = new UI(document.getElementById('app') as HTMLElement, callbacks);
   return { ui, callbacks };
@@ -98,14 +99,32 @@ describe('UI', () => {
     expect(callbacks.onTogglePlay).toHaveBeenCalled();
   });
 
-  it('keeps the Cast button hidden until the framework is available', () => {
-    const { ui } = makeUI();
+  it('keeps the Cast button hidden until the framework is available, then shows our own button', () => {
+    const { ui, callbacks } = makeUI();
     const wrap = document.querySelector('.cast-wrap') as HTMLElement;
+    const button = wrap.querySelector('.cast-button') as HTMLButtonElement;
+
+    // Our own always-visible button, not the auto-hiding <google-cast-launcher>.
+    expect(button).not.toBeNull();
+    expect(wrap.querySelector('google-cast-launcher')).toBeNull();
 
     expect(wrap.hidden).toBe(true);
     ui.showCastButton();
     expect(wrap.hidden).toBe(false);
-    expect(wrap.querySelector('google-cast-launcher')).not.toBeNull();
+
+    // Clicking it asks main.ts to open the picker (which triggers discovery).
+    button.click();
+    expect(callbacks.onCast).toHaveBeenCalled();
+  });
+
+  it('marks the Cast button while a session is active', () => {
+    const { ui } = makeUI();
+    const button = document.querySelector('.cast-button') as HTMLButtonElement;
+
+    ui.setCasting(true);
+    expect(button.classList.contains('is-casting')).toBe(true);
+    ui.setCasting(false);
+    expect(button.classList.contains('is-casting')).toBe(false);
   });
 
   it('forwards volume changes as a 0-1 level', () => {

@@ -45,6 +45,19 @@ export class CastController {
     return cast.framework.CastContext.getInstance().getCurrentSession() !== null;
   }
 
+  /**
+   * Opens the Cast device picker. Crucially, this is also what kicks off
+   * Chrome's device discovery: Chrome will not scan the network for Cast
+   * devices until a user gesture requests it, so an always-visible button that
+   * calls this on click is far more reliable than <google-cast-launcher>, which
+   * stays invisible until devices happen to be discovered (a catch-22 that left
+   * users with no button to click). Rejects if the user dismisses the picker.
+   */
+  async requestSession(): Promise<void> {
+    if (!window.cast?.framework) return;
+    await cast.framework.CastContext.getInstance().requestSession();
+  }
+
   /** Load (or switch) the station playing on the connected device. */
   async loadStation(station: Station): Promise<void> {
     const session = cast.framework.CastContext.getInstance().getCurrentSession();

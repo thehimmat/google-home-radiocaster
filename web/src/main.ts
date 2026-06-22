@@ -17,6 +17,7 @@ const ui = new UI(document.getElementById('app') as HTMLElement, {
     if (casting) castController.setVolume(level);
     else localPlayer.setVolume(level);
   },
+  onCast: () => void startCast(),
 });
 
 const localPlayer = new LocalPlayer(ui.audio);
@@ -57,6 +58,18 @@ async function togglePlay(): Promise<void> {
     ui.setPlaying(false);
   } else {
     await selectStation((selected ?? stations[0])?.slug ?? '');
+  }
+}
+
+async function startCast(): Promise<void> {
+  // Make sure a station is chosen so onCastingChange has something to load.
+  if (!selected && stations.length > 0) selected = stations[0];
+  try {
+    // Opens the picker and triggers discovery; on success the SESSION_STARTED
+    // event drives onCastingChange, which loads the station onto the device.
+    await castController.requestSession();
+  } catch {
+    // User dismissed the picker or picked nothing — nothing to report.
   }
 }
 
