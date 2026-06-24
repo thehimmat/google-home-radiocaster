@@ -2,7 +2,7 @@
 
 ## What this does
 
-Plays internet radio on a Google Home / Nest Hub (Kitchen Display, 192.168.0.5)
+Plays internet radio on a Google Home / Nest Hub (Living Room display, 192.168.1.42)
 using the Cast protocol, with cron-based scheduling.
 
 ---
@@ -12,7 +12,7 @@ using the Cast protocol, with cron-based scheduling.
 ```
 Mac (cast-now / scheduler)
   ↓  sends LOAD with stream URL
-Nest Hub (192.168.0.5, port 8009)
+Nest Hub (192.168.1.42, port 8009)
   ↓  fetches HLS playlist + segments over HTTPS
 stream.atthebunga.com (Railway, Dockerised)
   ↓  FFmpeg transcodes and writes 4-second .ts segments to /tmp/hls/
@@ -38,7 +38,7 @@ Deployed on Railway via Docker (Dockerfile in streaming-server/).
 FFmpeg is installed in the container; one FFmpeg process runs per station at
 boot, writing segments to `/tmp/hls/{station}/`.
 
-Custom domain: `stream.atthebunga.com` (CNAME → drkss7d0.up.railway.app, DNS via Vercel).
+Custom domain: `stream.atthebunga.com` (CNAME → your-app.up.railway.app, DNS via Vercel).
 
 Routes:
 - `GET /health` — returns `{"status":"ok","stations":[...]}`

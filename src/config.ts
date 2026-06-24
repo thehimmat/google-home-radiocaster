@@ -105,8 +105,8 @@ export const schedule: ScheduleEntry[] = [
   {
     cron: "0 6 * * *",          // 6:00 am, every day
     station: "Golden Temple",
-    deviceName: "Kitchen Display",
-    deviceIp: "192.168.0.5",
+    deviceName: "Living Room display",
+    deviceIp: "192.168.1.42",
     volume: 30,
   },
 ];
