@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npm run stop-cast                   — stops the first device in your schedule
- *   npm run stop-cast "Kitchen Display" — stops a specific device by name
+ *   npm run stop-cast "Living Room display" — stops a specific device by name
  */
 import { Client, DefaultMediaReceiver } from 'castv2-client';
 import { schedule } from './config';
