@@ -4,6 +4,7 @@ import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './ap
 import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
 import { StationBroadcaster } from './broadcaster';
 import { buildHlsArgs } from './ffmpeg-args';
+import { UpstreamMonitor } from './upstream-monitor';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -144,7 +145,10 @@ if (archiverEnv) {
 // HTTP server
 // ---------------------------------------------------------------------------
 
-const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters);
+// Attributes stale-playlist outages to the source vs. our pipeline for /health.
+const upstreamMonitor = new UpstreamMonitor(STATIONS);
+
+const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);

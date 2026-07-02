@@ -2,6 +2,7 @@ import request from 'supertest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createApp, StationMap } from './app';
+import { UpstreamMonitor } from './upstream-monitor';
 
 const FIXTURE_ROOT = path.join('/tmp', 'hls-test-' + process.pid);
 const STATIONS: StationMap = {
@@ -94,6 +95,45 @@ describe('GET /health', () => {
   it('returns CORS header so the web player can poll it', async () => {
     const res = await request(app).get('/health');
     expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('reports a live station when segments are fresh', async () => {
+    const res = await request(app).get('/health');
+    expect(res.body.stations[0].status).toBe('live');
+  });
+});
+
+describe('GET /health — outage attribution', () => {
+  // A station with no playlist on disk is always stale, so /health has to decide
+  // whether the outage is ours or the source's from the injected monitor.
+  const STALE: StationMap = { 'ghost-station': { url: 'https://source.example/live' } };
+
+  it('returns 503 (our failure) when the source is reachable but segments are stale', async () => {
+    const monitor = new UpstreamMonitor(STALE, async () => true);
+    const staleApp = createApp(STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+
+    const res = await request(staleApp).get('/health');
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.stations[0].status).toBe('error');
+  });
+
+  it('stays 200 when the source is unreachable (broadcaster outage, not ours)', async () => {
+    const monitor = new UpstreamMonitor(STALE, async () => false);
+    const staleApp = createApp(STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+
+    const res = await request(staleApp).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.stations[0].status).toBe('source-down');
+    expect(res.body.stations[0].upstreamReachable).toBe(false);
+  });
+
+  it('fails loud (error) for a stale station when no monitor is available', async () => {
+    const staleApp = createApp(STALE, FIXTURE_ROOT);
+    const res = await request(staleApp).get('/health');
+    expect(res.status).toBe(503);
+    expect(res.body.stations[0].status).toBe('error');
   });
 });
 

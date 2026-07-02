@@ -10,8 +10,18 @@ export interface Station {
   streamUrl: string;
 }
 
+/**
+ * Per-station status from GET /health.
+ *   'live'        — streaming normally
+ *   'source-down' — the broadcaster's source is unreachable (not our fault)
+ *   'error'       — stale on our side (pipeline/server problem)
+ */
+export type StationStatus = 'live' | 'source-down' | 'error';
+
 export interface StationHealth {
   name: string;
   processAlive: boolean | null;
   segmentFresh: boolean | null;
+  upstreamReachable: boolean | null;
+  status: StationStatus;
 }

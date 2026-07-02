@@ -15,6 +15,7 @@
   --line: rgba(212, 205, 198, 0.45);
   --card: rgba(255, 255, 255, 0.05);
   --live: #6fd189;
+  --warn: #e0a458;
 }
 
 html, body {
@@ -147,6 +148,23 @@ body {
 
 .station-live.is-live .live-label {
   color: var(--live);
+}
+
+.station-live.is-source-down .live-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
+}
+
+.station-live.is-source-down .live-label {
+  color: var(--warn);
+}
+
+.station-note {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--warn);
+  max-width: 42ch;
 }
 
 .controls {
