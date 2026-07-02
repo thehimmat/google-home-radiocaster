@@ -72,17 +72,43 @@ describe('UI', () => {
     expect(selected?.getAttribute('data-slug')).toBe('bare');
   });
 
-  it('updates live indicators from a health map', () => {
+  it('updates live indicators from a status map', () => {
     const { ui } = makeUI();
     ui.renderStations(STATIONS);
 
-    ui.setLive(new Map([['golden-temple', true], ['bare', false]]));
+    ui.setLive(new Map([['golden-temple', 'live'], ['bare', 'error']]));
 
     const rows = document.querySelectorAll('.station-live');
     expect(rows[0].classList.contains('is-live')).toBe(true);
     expect(rows[0].querySelector('.live-label')?.textContent).toBe('live');
     expect(rows[1].classList.contains('is-live')).toBe(false);
     expect(rows[1].querySelector('.live-label')?.textContent).toBe('offline');
+  });
+
+  it('shows a "not us" note when a station source is down, and clears it on recovery', () => {
+    const { ui } = makeUI();
+    ui.renderStations(STATIONS);
+
+    ui.setLive(new Map([['golden-temple', 'source-down'], ['bare', 'live']]));
+
+    const cards = document.querySelectorAll('.station-card');
+    const gtRow = cards[0].querySelector('.station-live') as HTMLElement;
+    const gtNote = cards[0].querySelector('.station-note') as HTMLElement;
+    expect(gtRow.classList.contains('is-source-down')).toBe(true);
+    expect(gtRow.querySelector('.live-label')?.textContent).toBe('source offline');
+    expect(gtNote.hidden).toBe(false);
+    // Message names the station and makes clear the outage is upstream.
+    expect(gtNote.textContent).toContain('Golden Temple Radio');
+    expect(gtNote.textContent?.toLowerCase()).toContain('not us');
+
+    // The healthy station shows no note.
+    expect((cards[1].querySelector('.station-note') as HTMLElement).hidden).toBe(true);
+
+    // Source recovers → note is hidden and the dot goes live again.
+    ui.setLive(new Map([['golden-temple', 'live']]));
+    expect(gtNote.hidden).toBe(true);
+    expect(gtRow.classList.contains('is-source-down')).toBe(false);
+    expect(gtRow.classList.contains('is-live')).toBe(true);
   });
 
   it('swaps the play control between play and pause states', () => {

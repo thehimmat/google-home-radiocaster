@@ -60,13 +60,13 @@ describe('fetchStations', () => {
 });
 
 describe('fetchHealth', () => {
-  it('parses per-station liveness, including degraded (503) responses', async () => {
+  it('parses per-station status, including degraded (503) responses', async () => {
     stubFetch(
       {
         status: 'degraded',
         stations: [
-          { name: 'live-one', processAlive: true, segmentFresh: true },
-          { name: 'down-one', processAlive: true, segmentFresh: false },
+          { name: 'live-one', processAlive: true, segmentFresh: true, upstreamReachable: true, status: 'live' },
+          { name: 'our-fault', processAlive: true, segmentFresh: false, upstreamReachable: true, status: 'error' },
         ],
       },
       false,
@@ -74,7 +74,34 @@ describe('fetchHealth', () => {
     );
 
     const health = await fetchHealth(BASE);
-    expect(health.get('live-one')).toBe(true);
-    expect(health.get('down-one')).toBe(false);
+    expect(health.get('live-one')).toBe('live');
+    expect(health.get('our-fault')).toBe('error');
+  });
+
+  it('surfaces an upstream (source-down) outage on a 200 response', async () => {
+    stubFetch(
+      {
+        status: 'ok',
+        stations: [
+          { name: 'sgpc', processAlive: true, segmentFresh: false, upstreamReachable: false, status: 'source-down' },
+        ],
+      },
+      true,
+      200,
+    );
+
+    const health = await fetchHealth(BASE);
+    expect(health.get('sgpc')).toBe('source-down');
+  });
+
+  it('falls back to error when a stale station reports no status field', async () => {
+    stubFetch(
+      { status: 'degraded', stations: [{ name: 'legacy', processAlive: true, segmentFresh: false }] },
+      false,
+      503,
+    );
+
+    const health = await fetchHealth(BASE);
+    expect(health.get('legacy')).toBe('error');
   });
 });

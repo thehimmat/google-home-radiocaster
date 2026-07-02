@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ChildProcess, spawn } from 'child_process';
 import { StationBroadcaster, SpawnFn } from './broadcaster';
+import { UpstreamMonitor } from './upstream-monitor';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -51,6 +52,10 @@ export function createApp(
   // Broadcaster registry. server.ts passes its own map so SIGTERM can stop()
   // them; tests pre-seed instances with short linger windows.
   broadcasters: Map<string, StationBroadcaster> = new Map(),
+  // Probes upstream sources when a station goes stale so /health can tell "our
+  // pipeline broke" from "the broadcaster's source is down". Omitted in unit
+  // tests, where a stale station is treated as our-side failure (fail loud).
+  upstreamMonitor?: UpstreamMonitor,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -58,28 +63,56 @@ export function createApp(
   // Serve static files (logos, cast skin, etc.)
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
-  app.get('/health', (_req, res) => {
-    const stationHealth = Object.keys(stations).map((name) => {
-      const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
+  // Per-station status the web player and UptimeRobot both read:
+  //   'live'        — fresh segments flowing
+  //   'source-down' — segments stale AND the upstream source is unreachable
+  //                   (the broadcaster's outage, e.g. SGPC — not our fault)
+  //   'error'       — segments stale but the source answers, so the break is
+  //                   on our side (FFmpeg/pipeline)
+  // /health returns 503 only when some station is in 'error' (a failure we own),
+  // so UptimeRobot pages us for our outages but not for a broadcaster's. A
+  // source outage still surfaces per-station for the UI's "not us" message.
+  app.get('/health', async (_req, res) => {
+    const stationHealth = await Promise.all(
+      Object.keys(stations).map(async (name) => {
+        const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
 
-      // Check that the playlist exists and was written within the last 30 seconds.
-      let segmentFresh: boolean | null = null;
-      try {
-        const stat = fs.statSync(playlistPath(hlsRoot, name));
-        segmentFresh = (Date.now() - stat.mtimeMs) < 30_000;
-      } catch {
-        segmentFresh = false;
-      }
+        // Check that the playlist exists and was written within the last 30 seconds.
+        let segmentFresh: boolean | null = null;
+        try {
+          const stat = fs.statSync(playlistPath(hlsRoot, name));
+          segmentFresh = (Date.now() - stat.mtimeMs) < 30_000;
+        } catch {
+          segmentFresh = false;
+        }
 
-      return { name, processAlive, segmentFresh };
-    });
+        if (segmentFresh) {
+          upstreamMonitor?.noteStreaming(name);
+          return { name, processAlive, segmentFresh, upstreamReachable: true, status: 'live' };
+        }
 
-    const allHealthy = stationHealth.every((s) => s.segmentFresh !== false);
+        // Stale. Without a monitor we can't attribute the outage, so fail loud
+        // (treat as our-side error). With one, probe the source to decide.
+        if (!upstreamMonitor) {
+          return { name, processAlive, segmentFresh, upstreamReachable: null, status: 'error' };
+        }
+        const upstream = await upstreamMonitor.check(name);
+        return {
+          name,
+          processAlive,
+          segmentFresh,
+          upstreamReachable: upstream.reachable,
+          status: upstream.reachable ? 'error' : 'source-down',
+        };
+      }),
+    );
+
+    const ourFailure = stationHealth.some((s) => s.status === 'error');
     res
-      .status(allHealthy ? 200 : 503)
+      .status(ourFailure ? 503 : 200)
       // The web player polls this cross-origin for the live indicators.
       .set('Access-Control-Allow-Origin', '*')
-      .json({ status: allHealthy ? 'ok' : 'degraded', stations: stationHealth });
+      .json({ status: ourFailure ? 'degraded' : 'ok', stations: stationHealth });
   });
 
   // Station list for the web player: display metadata plus the paths clients

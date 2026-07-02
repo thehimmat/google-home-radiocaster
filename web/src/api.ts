@@ -1,4 +1,4 @@
-import type { Station, StationHealth } from './types';
+import type { Station, StationHealth, StationStatus } from './types';
 
 // The stream origin is configurable so the static bundle is host-portable:
 // set VITE_STREAM_BASE=http://localhost:3001 to develop against a local
@@ -35,12 +35,24 @@ export async function fetchStations(base: string = STREAM_BASE): Promise<Station
 }
 
 /**
- * Per-station liveness keyed by slug. /health responds 503 when any station
- * is stale — that still carries the per-station data, so non-ok statuses are
- * parsed, not thrown.
+ * Per-station status keyed by slug. /health responds 503 when a station fails
+ * on our side, but the body still carries per-station data (including source
+ * outages, which stay 200), so non-ok statuses are parsed, not thrown.
+ * Missing/unknown status is treated as 'error' so the UI never silently hides a
+ * dead stream.
  */
-export async function fetchHealth(base: string = STREAM_BASE): Promise<Map<string, boolean>> {
+export async function fetchHealth(base: string = STREAM_BASE): Promise<Map<string, StationStatus>> {
   const res = await fetch(new URL('/health', base));
   const body: { stations: StationHealth[] } = await res.json();
-  return new Map(body.stations.map((s) => [s.name, s.segmentFresh === true]));
+  return new Map(
+    body.stations.map((s) => {
+      const status: StationStatus =
+        s.status === 'live' || s.status === 'source-down' || s.status === 'error'
+          ? s.status
+          : s.segmentFresh === true
+            ? 'live'
+            : 'error';
+      return [s.name, status];
+    }),
+  );
 }
