@@ -28,7 +28,7 @@
 //   Use that exact string here (case-insensitive). Example: "Living Room display"
 //
 // FALLBACK — if mDNS discovery doesn't find your device, add a `deviceIp` field
-//   to a schedule entry (e.g. deviceIp: "192.168.1.42") and it will skip
+//   to a schedule entry (e.g. deviceIp: "192.168.0.5") and it will skip
 //   discovery and connect directly. Find the IP in your router's device list
 //   or in the Google Home app under device settings.
 // =============================================================================
@@ -105,8 +105,8 @@ export const schedule: ScheduleEntry[] = [
   {
     cron: "0 6 * * *",          // 6:00 am, every day
     station: "Golden Temple",
-    deviceName: "Living Room display",
-    deviceIp: "192.168.1.42",
+    deviceName: "Kitchen Display",
+    deviceIp: "192.168.0.5",
     volume: 30,
   },
 ];
