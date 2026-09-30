@@ -7,3 +7,6 @@ streaming-server/dist/
 !eslint.config.js
 !streaming-server/eslint.config.js
 !streaming-server/jest.config.js
+
+# Per-machine overrides (see src/config.local.example.ts)
+src/config.local.ts

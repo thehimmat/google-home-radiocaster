@@ -1,6 +1,11 @@
 // =============================================================================
-// CONFIGURATION — this is the only file you need to edit
+// CONFIGURATION
 // =============================================================================
+//
+// Machine-specific values (your device's IP and name, the cron time) go in
+// `src/config.local.ts`, which is gitignored — copy `config.local.example.ts`
+// to get started. Whatever it exports overrides what is defined here, so this
+// tracked file can stay generic. See `local-config.ts` for the merge rules.
 //
 // HOW TO ADD A STATION:
 //   1. Find the upstream stream URL (ends in .mp3, .aac, or is a direct HTTP
@@ -32,6 +37,8 @@
 //   discovery and connect directly. Find the IP in your router's device list
 //   or in the Google Home app under device settings.
 // =============================================================================
+
+import { loadLocalConfig, mergeConfig } from './local-config';
 
 export interface StationConfig {
   /** Direct audio stream URL */
@@ -69,7 +76,7 @@ export interface ScheduleEntry {
 // url must be a direct audio stream URL (mp3, aac, or m3u8).
 // title, subtitle, artworkUrl are shown on the Cast device screen (all optional).
 // -----------------------------------------------------------------------------
-export const stations: Record<string, StationConfig> = {
+const defaultStations: Record<string, StationConfig> = {
   "Golden Temple": {
     url: "https://stream.atthebunga.com/golden-temple/stream",
     contentType: "audio/aac",
@@ -100,13 +107,25 @@ export const stations: Record<string, StationConfig> = {
 // SCHEDULE
 // Each entry = one alarm. Add as many as you like.
 // -----------------------------------------------------------------------------
-export const schedule: ScheduleEntry[] = [
+// This is the fallback used only when `config.local.ts` doesn't provide a
+// schedule. Put your real device and time in `config.local.ts` instead.
+const defaultSchedule: ScheduleEntry[] = [
   // TODO: add OPB News and KEXP back once working stream URLs are found.
   {
     cron: "0 6 * * *",          // 6:00 am, every day
     station: "Golden Temple",
-    deviceName: "Kitchen Display",
-    deviceIp: "192.168.0.5",
+    deviceName: "Living Room display",
     volume: 30,
   },
 ];
+
+// -----------------------------------------------------------------------------
+// RESOLVED CONFIG — defaults above, overridden by `config.local.ts` if present.
+// -----------------------------------------------------------------------------
+const resolved = mergeConfig(
+  { stations: defaultStations, schedule: defaultSchedule },
+  loadLocalConfig(__dirname),
+);
+
+export const stations: Record<string, StationConfig> = resolved.stations;
+export const schedule: ScheduleEntry[] = resolved.schedule;
