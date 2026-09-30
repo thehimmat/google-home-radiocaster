@@ -34,7 +34,8 @@ const DEFAULTS: Required<BroadcasterOpts> = {
  * their sockets stay open through the gap.
  */
 export class StationBroadcaster {
-  private readonly clients = new Set<Response>();
+  /** Each client maps to its log label (IP + user-agent) — see describeClient. */
+  private readonly clients = new Map<Response, string>();
   private readonly opts: Required<BroadcasterOpts>;
   private proc: ChildProcess | null = null;
   private lingerTimer: NodeJS.Timeout | null = null;
@@ -53,8 +54,8 @@ export class StationBroadcaster {
     return this.clients.size;
   }
 
-  addClient(res: Response): void {
-    this.clients.add(res);
+  addClient(res: Response, label = ''): void {
+    this.clients.set(res, label);
     if (this.lingerTimer) {
       clearTimeout(this.lingerTimer);
       this.lingerTimer = null;
@@ -64,7 +65,7 @@ export class StationBroadcaster {
     res.on('error', () => { /* handled via close */ });
     res.on('close', () => this.removeClient(res));
     if (!this.proc && !this.restartTimer) this.start();
-    console.log(`[stream:${this.station}] client connected (${this.clients.size} listening)`);
+    console.log(`[stream:${this.station}] client connected (${this.clients.size} listening) ${label}`.trimEnd());
   }
 
   /** Kill FFmpeg and drop all clients — used on server shutdown. */
@@ -76,13 +77,15 @@ export class StationBroadcaster {
     const proc = this.proc;
     this.proc = null; // cleared first so the exit handler doesn't respawn
     proc?.kill('SIGKILL');
-    for (const res of this.clients) res.destroy();
+    for (const res of this.clients.keys()) res.destroy();
     this.clients.clear();
   }
 
   private removeClient(res: Response): void {
-    if (!this.clients.delete(res)) return;
-    console.log(`[stream:${this.station}] client disconnected (${this.clients.size} listening)`);
+    const label = this.clients.get(res);
+    if (label === undefined) return;
+    this.clients.delete(res);
+    console.log(`[stream:${this.station}] client disconnected (${this.clients.size} listening) ${label}`.trimEnd());
     if (this.clients.size === 0) this.scheduleLinger();
   }
 
@@ -125,7 +128,7 @@ export class StationBroadcaster {
   }
 
   private fanOut(chunk: Buffer): void {
-    for (const res of this.clients) {
+    for (const res of this.clients.keys()) {
       if (res.destroyed || res.writableEnded) continue;
       if (res.writableLength > this.opts.maxClientBufferBytes) {
         console.warn(`[stream:${this.station}] dropping slow client (${res.writableLength} bytes buffered)`);
