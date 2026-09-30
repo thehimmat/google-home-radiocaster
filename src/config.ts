@@ -92,6 +92,43 @@ const defaultStations: Record<string, StationConfig> = {
     subtitle: "San Jose, CA",
   },
 
+  "Hazur Sahib": {
+    url: "https://stream.atthebunga.com/hazur-sahib/stream",
+    contentType: "audio/aac",
+    title: "Takht Sri Hazur Sahib",
+    subtitle: "Nanded",
+  },
+
+  "Dukh Niwaran Sahib": {
+    url: "https://stream.atthebunga.com/dukh-niwaran-sahib/stream",
+    contentType: "audio/aac",
+    title: "Gurdwara Dukh Niwaran Sahib",
+    subtitle: "Ludhiana",
+  },
+
+  // Broadcasts roughly 02:00–09:30 and 16:00–21:30 IST (12:30–20:00 and
+  // 02:30–08:00 Pacific); schedule it inside those windows.
+  "Bangla Sahib": {
+    url: "https://stream.atthebunga.com/bangla-sahib/stream",
+    contentType: "audio/aac",
+    title: "Gurdwara Bangla Sahib",
+    subtitle: "Delhi",
+  },
+
+  "Sis Ganj Sahib": {
+    url: "https://stream.atthebunga.com/sis-ganj-sahib/stream",
+    contentType: "audio/aac",
+    title: "Gurdwara Sis Ganj Sahib",
+    subtitle: "Delhi",
+  },
+
+  "Fremont": {
+    url: "https://stream.atthebunga.com/fremont/stream",
+    contentType: "audio/aac",
+    title: "Gurdwara Sahib Fremont",
+    subtitle: "Fremont, CA",
+  },
+
   // Useful sanity-check station — plain HTTP, no SSL, reliably always up.
   "SomaFM Groove Salad": {
     url: "http://ice1.somafm.com/groovesalad-128-mp3",
