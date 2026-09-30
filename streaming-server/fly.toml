@@ -24,7 +24,9 @@ primary_region = "sjc"
   min_machines_running = 1
 
 [[vm]]
-  memory = "512mb"
+  # One always-on HLS FFmpeg per station (~60 MB each) plus a lazy /stream
+  # FFmpeg per station with listeners. 512 MB fit two stations; seven need more.
+  memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
 
