@@ -90,6 +90,31 @@ describe('GET /:station/stream', () => {
     }
   });
 
+  it('logs who connected and disconnected (IP + user-agent)', async () => {
+    const { app } = makeApp();
+    const server = app.listen(0);
+    const port = (server.address() as AddressInfo).port;
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
+        http.get(
+          { port, path: '/test-station/stream', headers: { 'Fly-Client-IP': '203.0.113.7', 'User-Agent': 'CrKey/1.56' } },
+          resolve,
+        ).on('error', reject);
+      });
+      const who = 'ip=203.0.113.7 ua="CrKey/1.56"';
+      expect(log).toHaveBeenCalledWith(expect.stringContaining(`client connected (1 listening) ${who}`));
+
+      res.destroy();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining(`client disconnected (0 listening) ${who}`));
+    } finally {
+      log.mockRestore();
+      server.close();
+    }
+  });
+
   it('shares one ffmpeg process across concurrent listeners', async () => {
     const { app, spawned } = makeApp();
     const server = app.listen(0);
