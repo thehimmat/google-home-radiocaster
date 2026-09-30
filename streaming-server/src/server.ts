@@ -22,6 +22,34 @@ const STATIONS: StationMap = {
     title: 'Gurdwara San Jose',
     subtitle: 'San Jose, CA',
   },
+  // The SikhNet proxy channels below are the same relay family as san-jose.
+  'hazur-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/channel7/live',
+    title: 'Takht Sri Hazur Sahib',
+    subtitle: 'Nanded',
+  },
+  'dukh-niwaran-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/channel10/live',
+    title: 'Gurdwara Dukh Niwaran Sahib',
+    subtitle: 'Ludhiana',
+  },
+  // Broadcasts on a fixed schedule (roughly 02:00–09:30 and 16:00–21:30 IST);
+  // /health will show source-down outside those hours, which is expected.
+  'bangla-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/gbanglasahib/live',
+    title: 'Gurdwara Bangla Sahib',
+    subtitle: 'Delhi',
+  },
+  'sis-ganj-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/gsisganjsahib/live',
+    title: 'Gurdwara Sis Ganj Sahib',
+    subtitle: 'Delhi',
+  },
+  'fremont': {
+    url: 'https://radio.sikhnet.com/proxy/channel13/live',
+    title: 'Gurdwara Sahib Fremont',
+    subtitle: 'Fremont, CA',
+  },
 };
 
 // ---------------------------------------------------------------------------
