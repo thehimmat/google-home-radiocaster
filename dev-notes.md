@@ -63,6 +63,32 @@ To add a station:
 
 ---
 
+## Per-machine config
+
+`src/config.ts` is tracked and generic. Real device IP/name and cron times go
+in `src/config.local.ts` (gitignored; copy `config.local.example.ts`).
+`local-config.ts` does the merge: `schedule` replaces, `stations` merges by
+key. A missing local file is fine; a broken one throws at startup rather than
+silently falling back to the placeholder schedule.
+
+---
+
+## Always-on scheduler (launchd)
+
+`npm run install-agent` renders `deploy/com.atthebunga.radiocaster.plist.example`
+into `~/Library/LaunchAgents/` and bootstraps it. The plist runs
+`deploy/radiocaster-agent.sh`, which rotates the log (5 MB, keep 3) and then
+execs `node node_modules/.bin/ts-node src/index.ts`. Logs:
+`~/Library/Logs/radiocaster/radiocaster.log`.
+
+The wrapper does its own `exec >> log` instead of using launchd's
+`StandardOutPath` — launchd would keep the old inode open after a rename, so
+rotation would silently stop capturing output. `npm run uninstall-agent`
+removes it. Both scripts are covered by `src/deploy.test.ts`, which runs them
+on any POSIX host with a fake `node`.
+
+---
+
 ## Known issues / TODO
 
 - **OPB News / KEXP**: streamguys1.com has a TLS cert mismatch (`*.streamguys.com`
@@ -112,4 +138,8 @@ npm start
 
 # Scan for Cast devices on the network (requires mDNS — may not work with AP isolation)
 npm run discover
+
+# Install / remove the always-on launchd agent (macOS)
+npm run install-agent
+npm run uninstall-agent
 ```

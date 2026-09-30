@@ -8,6 +8,8 @@
     "stop-cast": "ts-node src/stop-cast.ts",
     "discover": "ts-node src/discover.ts",
     "volume": "ts-node src/volume.ts",
+    "install-agent": "bash deploy/install-agent.sh",
+    "uninstall-agent": "bash deploy/uninstall-agent.sh",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "jest"
