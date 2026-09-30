@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd agent for the Radio Caster scheduler.
+
+  Don't install this file by hand: `npm run install-agent` fills in the repo
+  and node paths below and loads it for you.
+
+  The agent runs deploy/radiocaster-agent.sh, which rotates the log and then
+  hands off to `ts-node src/index.ts`. Logs land in
+  ~/Library/Logs/radiocaster/radiocaster.log.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.atthebunga.radiocaster</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO_PATH__/deploy/radiocaster-agent.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO_PATH__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>RADIOCASTER_NODE</key>
+    <string>__NODE_PATH__</string>
+  </dict>
+
+  <!-- Start at login and restart if the process ever exits. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Back off a little between restarts so a crash loop doesn't spin. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+</dict>
+</plist>
