@@ -115,13 +115,6 @@ const defaultStations: Record<string, StationConfig> = {
     subtitle: "Delhi",
   },
 
-  "Sis Ganj Sahib": {
-    url: "https://stream.atthebunga.com/sis-ganj-sahib/stream",
-    contentType: "audio/aac",
-    title: "Gurdwara Sis Ganj Sahib",
-    subtitle: "Delhi",
-  },
-
   "Fremont": {
     url: "https://stream.atthebunga.com/fremont/stream",
     contentType: "audio/aac",
