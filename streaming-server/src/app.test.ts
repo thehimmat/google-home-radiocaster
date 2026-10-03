@@ -1,7 +1,8 @@
 import request from 'supertest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createApp, StationMap } from './app';
+import { createApp, readMediaSequence, StationMap } from './app';
+import { QualityReport } from './quality-poller';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusEvent } from './status-history';
 
@@ -101,6 +102,38 @@ describe('GET /health', () => {
   it('reports a live station when segments are fresh', async () => {
     const res = await request(app).get('/health');
     expect(res.body.stations[0].status).toBe('live');
+  });
+
+  it('includes the latest audio-quality report per station when a poller is wired in', async () => {
+    const report: QualityReport = {
+      quality: 'choppy', cause: 'source', sourceRatio: 0.55, pipelineRatio: 0.6, checkedAt: '2026-10-03T22:00:00.000Z',
+    };
+    const qualityApp = createApp(STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, {
+      latest: (name) => (name === 'test-station' ? report : undefined),
+    });
+    const res = await request(qualityApp).get('/health');
+    expect(res.body.stations[0].quality).toEqual(report);
+    // Quality is informational: a choppy station is still live and doesn't page.
+    expect(res.body.stations[0].status).toBe('live');
+    expect(res.status).toBe(200);
+  });
+
+  it('reports quality as null for a station not sampled yet', async () => {
+    const qualityApp = createApp(STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, {
+      latest: () => undefined,
+    });
+    const res = await request(qualityApp).get('/health');
+    expect(res.body.stations[0].quality).toBeNull();
+  });
+});
+
+describe('readMediaSequence', () => {
+  it('reads EXT-X-MEDIA-SEQUENCE from the station playlist', () => {
+    expect(readMediaSequence(FIXTURE_ROOT, 'test-station')).toBe(0);
+  });
+
+  it('is null when there is no playlist', () => {
+    expect(readMediaSequence(FIXTURE_ROOT, 'missing')).toBeNull();
   });
 });
 

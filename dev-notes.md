@@ -62,9 +62,16 @@ Routes (`streaming-server/src/app.ts`):
 - `GET /health` — per-station `live` / `source-down` / `error` plus site
   `ok` / `degraded` / `down`; returns 503 (pages UptimeRobot) only when no
   station is live. One dead station is labelled on the site, never paged.
+  Each station also carries `quality` (null until first sampled): every 5 min,
+  one station at a time, the server decodes 20s of the station's *source* and
+  classifies it `down` / `silent` / `choppy` / `healthy`. `sourceRatio` is
+  source audio seconds per wall second (<0.9 = cutting out); `pipelineRatio`
+  is the same for our HLS output; `cause` is `source`, `us` or `none`.
+  Informational only: it never changes `status` or pages.
 - `GET /history?station=<slug|*>&since=<ISO>&limit=<n>` — status transitions
   logged every 20s to `/data/hls/_status-history.jsonl` (30-day retention).
-  `*` is the site as a whole. Use it to see what happened during an alert:
+  `*` is the site as a whole. Events with `"kind":"quality"` are quality
+  changes from the poller above (with `cause` and the two ratios). Use it to see what happened during an alert:
   `curl 'https://stream.atthebunga.com/history?since=2026-10-03T12:00:00Z'`
 - `GET /stations` — station metadata plus `hlsPath` / `streamPath` for the web player
 - `HEAD /:station` — returns `Content-Type: application/x-mpegURL` immediately
