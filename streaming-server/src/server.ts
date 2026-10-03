@@ -40,11 +40,6 @@ const STATIONS: StationMap = {
     title: 'Gurdwara Bangla Sahib',
     subtitle: 'Delhi',
   },
-  'sis-ganj-sahib': {
-    url: 'https://radio.sikhnet.com/proxy/gsisganjsahib/live',
-    title: 'Gurdwara Sis Ganj Sahib',
-    subtitle: 'Delhi',
-  },
   'fremont': {
     url: 'https://radio.sikhnet.com/proxy/channel13/live',
     title: 'Gurdwara Sahib Fremont',
