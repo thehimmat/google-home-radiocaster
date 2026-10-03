@@ -35,9 +35,9 @@ export async function fetchStations(base: string = STREAM_BASE): Promise<Station
 }
 
 /**
- * Per-station status keyed by slug. /health responds 503 when a station fails
- * on our side, but the body still carries per-station data (including source
- * outages, which stay 200), so non-ok statuses are parsed, not thrown.
+ * Per-station status keyed by slug. /health responds 503 only when no station
+ * is live, but the body always carries per-station data, so non-ok statuses
+ * are parsed, not thrown.
  * Missing/unknown status is treated as 'error' so the UI never silently hides a
  * dead stream.
  */

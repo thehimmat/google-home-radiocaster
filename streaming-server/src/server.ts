@@ -1,10 +1,13 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { createApp, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { createApp, evaluateStations, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
 import { StationBroadcaster } from './broadcaster';
 import { buildHlsArgs } from './ffmpeg-args';
 import { UpstreamMonitor } from './upstream-monitor';
+import { StatusHistory } from './status-history';
+import { StatusTracker } from './status-tracker';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -171,7 +174,25 @@ if (archiverEnv) {
 // Attributes stale-playlist outages to the source vs. our pipeline for /health.
 const upstreamMonitor = new UpstreamMonitor(STATIONS);
 
-const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor);
+// ---------------------------------------------------------------------------
+// Status history — evaluates every station on a timer and logs transitions to
+// the volume, so past outages can be reconstructed via /history.
+// ---------------------------------------------------------------------------
+
+const STATUS_INTERVAL_MS = 20_000;
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Lives on the persistent volume next to the HLS dirs so it survives restarts.
+const statusHistory = new StatusHistory(
+  process.env.STATUS_HISTORY_FILE ?? path.join(HLS_ROOT, '_status-history.jsonl'),
+);
+statusHistory.prune();
+setInterval(() => statusHistory.prune(), PRUNE_INTERVAL_MS);
+new StatusTracker(
+  () => evaluateStations(STATIONS, HLS_ROOT, ffmpegProcesses, upstreamMonitor),
+  statusHistory,
+).start(STATUS_INTERVAL_MS);
+
+const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);

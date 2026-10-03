@@ -5,6 +5,8 @@ import { ChildProcess, spawn } from 'child_process';
 import { StationBroadcaster, SpawnFn } from './broadcaster';
 import { describeClient } from './client-info';
 import { UpstreamMonitor } from './upstream-monitor';
+import { StatusReader } from './status-history';
+import { StationHealth, siteStatus } from './status-tracker';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -43,6 +45,54 @@ function waitForPlaylist(hlsRoot: string, station: string, timeoutMs = 15000): P
   });
 }
 
+const SEGMENT_FRESH_MS = 30_000;
+
+/**
+ * Status of every station right now: fresh segments mean live; stale ones are
+ * attributed to the source or to us by probing the upstream. Shared by /health
+ * and the background StatusTracker.
+ */
+export async function evaluateStations(
+  stations: StationMap,
+  hlsRoot: string,
+  ffmpegProcesses?: Map<string, ChildProcess>,
+  upstreamMonitor?: UpstreamMonitor,
+): Promise<StationHealth[]> {
+  return Promise.all(
+    Object.keys(stations).map(async (name): Promise<StationHealth> => {
+      const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
+
+      // Check that the playlist exists and was written recently.
+      let segmentFresh: boolean;
+      try {
+        const stat = fs.statSync(playlistPath(hlsRoot, name));
+        segmentFresh = (Date.now() - stat.mtimeMs) < SEGMENT_FRESH_MS;
+      } catch {
+        segmentFresh = false;
+      }
+
+      if (segmentFresh) {
+        upstreamMonitor?.noteStreaming(name);
+        return { name, processAlive, segmentFresh, upstreamReachable: true, status: 'live' };
+      }
+
+      // Stale. Without a monitor we can't attribute the outage, so fail loud
+      // (treat as our-side error). With one, probe the source to decide.
+      if (!upstreamMonitor) {
+        return { name, processAlive, segmentFresh, upstreamReachable: null, status: 'error' };
+      }
+      const upstream = await upstreamMonitor.check(name);
+      return {
+        name,
+        processAlive,
+        segmentFresh,
+        upstreamReachable: upstream.reachable,
+        status: upstream.reachable ? 'error' : 'source-down',
+      };
+    }),
+  );
+}
+
 export function createApp(
   stations: StationMap,
   hlsRoot: string,
@@ -57,6 +107,8 @@ export function createApp(
   // pipeline broke" from "the broadcaster's source is down". Omitted in unit
   // tests, where a stale station is treated as our-side failure (fail loud).
   upstreamMonitor?: UpstreamMonitor,
+  // Status transition log served at /history; omitted → /history is 404.
+  history?: StatusReader,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -64,56 +116,38 @@ export function createApp(
   // Serve static files (logos, cast skin, etc.)
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
-  // Per-station status the web player and UptimeRobot both read:
-  //   'live'        — fresh segments flowing
-  //   'source-down' — segments stale AND the upstream source is unreachable
-  //                   (the broadcaster's outage, e.g. SGPC — not our fault)
-  //   'error'       — segments stale but the source answers, so the break is
-  //                   on our side (FFmpeg/pipeline)
-  // /health returns 503 only when some station is in 'error' (a failure we own),
-  // so UptimeRobot pages us for our outages but not for a broadcaster's. A
-  // source outage still surfaces per-station for the UI's "not us" message.
+  // Per-station status for the web player's live/"not us" labels, plus a
+  // site-level status for UptimeRobot. /health returns 503 only when nothing
+  // is live (see siteStatus): a single dead station — whoever's fault — is
+  // labelled on the site but doesn't page.
   app.get('/health', async (_req, res) => {
-    const stationHealth = await Promise.all(
-      Object.keys(stations).map(async (name) => {
-        const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
-
-        // Check that the playlist exists and was written within the last 30 seconds.
-        let segmentFresh: boolean | null = null;
-        try {
-          const stat = fs.statSync(playlistPath(hlsRoot, name));
-          segmentFresh = (Date.now() - stat.mtimeMs) < 30_000;
-        } catch {
-          segmentFresh = false;
-        }
-
-        if (segmentFresh) {
-          upstreamMonitor?.noteStreaming(name);
-          return { name, processAlive, segmentFresh, upstreamReachable: true, status: 'live' };
-        }
-
-        // Stale. Without a monitor we can't attribute the outage, so fail loud
-        // (treat as our-side error). With one, probe the source to decide.
-        if (!upstreamMonitor) {
-          return { name, processAlive, segmentFresh, upstreamReachable: null, status: 'error' };
-        }
-        const upstream = await upstreamMonitor.check(name);
-        return {
-          name,
-          processAlive,
-          segmentFresh,
-          upstreamReachable: upstream.reachable,
-          status: upstream.reachable ? 'error' : 'source-down',
-        };
-      }),
-    );
-
-    const ourFailure = stationHealth.some((s) => s.status === 'error');
+    const stationHealth = await evaluateStations(stations, hlsRoot, ffmpegProcesses, upstreamMonitor);
+    const status = siteStatus(stationHealth);
     res
-      .status(ourFailure ? 503 : 200)
+      .status(status === 'down' ? 503 : 200)
       // The web player polls this cross-origin for the live indicators.
       .set('Access-Control-Allow-Origin', '*')
-      .json({ status: ourFailure ? 'degraded' : 'ok', stations: stationHealth });
+      .json({ status, stations: stationHealth });
+  });
+
+  // Status transition log (see StatusHistory), for reconstructing outages:
+  //   /history?station=<slug|*>&since=<ISO time>&limit=<n>
+  app.get('/history', (req, res) => {
+    if (!history) { res.sendStatus(404); return; }
+    const { station, since, limit } = req.query;
+    const sinceMs = typeof since === 'string' ? Date.parse(since) : undefined;
+    if (sinceMs !== undefined && Number.isNaN(sinceMs)) {
+      res.status(400).json({ error: 'since must be an ISO 8601 time' });
+      return;
+    }
+    const limitN = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
+    res.set('Access-Control-Allow-Origin', '*').json(
+      history.read({
+        station: typeof station === 'string' ? station : undefined,
+        since: sinceMs,
+        limit: limitN !== undefined && limitN > 0 ? limitN : undefined,
+      }),
+    );
   });
 
   // Station list for the web player: display metadata plus the paths clients
