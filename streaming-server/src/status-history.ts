@@ -17,6 +17,12 @@ export interface StatusEvent {
   from: string | null;
   to: string;
   upstreamReachable: boolean | null;
+  /** Absent for status (live/error/source-down) events; 'quality' for QualityPoller events. */
+  kind?: 'quality';
+  /** Quality events only: who the problem points at, and the measured rates. */
+  cause?: string;
+  sourceRatio?: number | null;
+  pipelineRatio?: number | null;
 }
 
 export interface HistoryQuery {
