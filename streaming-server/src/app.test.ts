@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createApp, StationMap } from './app';
 import { UpstreamMonitor } from './upstream-monitor';
+import { StatusEvent } from './status-history';
 
 const FIXTURE_ROOT = path.join('/tmp', 'hls-test-' + process.pid);
 const STATIONS: StationMap = {
@@ -103,37 +104,95 @@ describe('GET /health', () => {
   });
 });
 
-describe('GET /health — outage attribution', () => {
-  // A station with no playlist on disk is always stale, so /health has to decide
-  // whether the outage is ours or the source's from the injected monitor.
-  const STALE: StationMap = { 'ghost-station': { url: 'https://source.example/live' } };
+describe('GET /health — paging rule', () => {
+  // A station with no playlist on disk is always stale. 'test-station' (shared
+  // fixture) is always live. /health pages (503) only when nothing is live; a
+  // single dead station is labelled per-station but keeps the site at 200.
+  const LIVE_AND_STALE: StationMap = {
+    'test-station': { url: 'https://example.com/stream' },
+    'ghost-station': { url: 'https://source.example/live' },
+  };
+  const STALE_ONLY: StationMap = { 'ghost-station': { url: 'https://source.example/live' } };
 
-  it('returns 503 (our failure) when the source is reachable but segments are stale', async () => {
-    const monitor = new UpstreamMonitor(STALE, async () => true);
-    const staleApp = createApp(STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+  it('stays 200 (degraded) when one station fails on our side but others are live', async () => {
+    const monitor = new UpstreamMonitor(LIVE_AND_STALE, async () => true);
+    const mixedApp = createApp(LIVE_AND_STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+
+    const res = await request(mixedApp).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.stations.find((s: { name: string }) => s.name === 'ghost-station').status).toBe('error');
+  });
+
+  it('labels a station source-down when its upstream is unreachable', async () => {
+    const monitor = new UpstreamMonitor(LIVE_AND_STALE, async () => false);
+    const mixedApp = createApp(LIVE_AND_STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+
+    const res = await request(mixedApp).get('/health');
+    expect(res.status).toBe(200);
+    const ghost = res.body.stations.find((s: { name: string }) => s.name === 'ghost-station');
+    expect(ghost.status).toBe('source-down');
+    expect(ghost.upstreamReachable).toBe(false);
+  });
+
+  it('returns 503 (down) when no station is live', async () => {
+    const monitor = new UpstreamMonitor(STALE_ONLY, async () => true);
+    const staleApp = createApp(STALE_ONLY, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
 
     const res = await request(staleApp).get('/health');
     expect(res.status).toBe(503);
-    expect(res.body.status).toBe('degraded');
+    expect(res.body.status).toBe('down');
     expect(res.body.stations[0].status).toBe('error');
   });
 
-  it('stays 200 when the source is unreachable (broadcaster outage, not ours)', async () => {
-    const monitor = new UpstreamMonitor(STALE, async () => false);
-    const staleApp = createApp(STALE, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
+  it('returns 503 when nothing is live even if every source looks unreachable', async () => {
+    const monitor = new UpstreamMonitor(STALE_ONLY, async () => false);
+    const staleApp = createApp(STALE_ONLY, FIXTURE_ROOT, undefined, undefined, undefined, monitor);
 
     const res = await request(staleApp).get('/health');
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe('ok');
+    expect(res.status).toBe(503);
     expect(res.body.stations[0].status).toBe('source-down');
-    expect(res.body.stations[0].upstreamReachable).toBe(false);
   });
 
   it('fails loud (error) for a stale station when no monitor is available', async () => {
-    const staleApp = createApp(STALE, FIXTURE_ROOT);
+    const staleApp = createApp(STALE_ONLY, FIXTURE_ROOT);
     const res = await request(staleApp).get('/health');
     expect(res.status).toBe(503);
     expect(res.body.stations[0].status).toBe('error');
+  });
+});
+
+describe('GET /history', () => {
+  const events: StatusEvent[] = [
+    { ts: '2026-10-01T00:00:00.000Z', station: 'a', from: null, to: 'live', upstreamReachable: null },
+    { ts: '2026-10-02T00:00:00.000Z', station: 'b', from: 'live', to: 'error', upstreamReachable: true },
+  ];
+  let lastQuery: unknown;
+  const history = {
+    read: (q: unknown) => { lastQuery = q; return events; },
+  };
+  const historyApp = createApp(STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, history);
+
+  it('returns recorded status events with CORS', async () => {
+    const res = await request(historyApp).get('/history');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(events);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('passes station, since and limit through to the store', async () => {
+    await request(historyApp).get('/history?station=b&since=2026-10-02T00:00:00Z&limit=10');
+    expect(lastQuery).toEqual({ station: 'b', since: Date.parse('2026-10-02T00:00:00Z'), limit: 10 });
+  });
+
+  it('rejects an unparseable since', async () => {
+    const res = await request(historyApp).get('/history?since=yesterday');
+    expect(res.status).toBe(400);
+  });
+
+  it('is 404 when history is not configured', async () => {
+    const res = await request(app).get('/history');
+    expect(res.status).toBe(404);
   });
 });
 

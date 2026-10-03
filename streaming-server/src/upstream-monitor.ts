@@ -4,9 +4,9 @@ import * as https from 'https';
 /**
  * Distinguishes "our pipeline is broken" from "the source broadcaster is down".
  * When a station's playlist goes stale, /health asks this monitor whether the
- * upstream URL still answers. If it doesn't, the outage is the broadcaster's
- * (e.g. SGPC), we report it per-station, and /health stays 200 so UptimeRobot
- * only pages for failures on our side.
+ * upstream URL still delivers audio. If it doesn't, the outage is the
+ * broadcaster's (e.g. SGPC) and the site labels the station "source-down"
+ * rather than blaming our pipeline.
  */
 
 export type ProbeFn = (url: string) => Promise<boolean>;
@@ -18,23 +18,39 @@ export interface UpstreamStatus {
 }
 
 /**
- * Reachability probe: any 2xx/3xx response counts as "the source is up".
+ * Reachability probe: the source is up only if it answers 2xx/3xx AND sends
+ * audio bytes within the timeout. Relays like radio.sikhnet.com keep answering
+ * 200 after the gurdwara's own source drops, just with no data, so a status
+ * code alone misattributes the broadcaster's outage to us.
  * TLS verification is disabled because upstreams like SGPC use self-signed
- * certs (FFmpeg pulls them with -tls_verify 0 for the same reason), and the
- * only question here is whether the origin answers.
+ * certs (FFmpeg pulls them with -tls_verify 0 for the same reason).
  */
 export function httpProbe(url: string, timeoutMs = 8000): Promise<boolean> {
   return new Promise((resolve) => {
-    const onResponse = (res: http.IncomingMessage) => {
-      const ok = res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 400;
-      res.destroy();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      req.destroy();
       resolve(ok);
     };
+    // One deadline covers connect, headers and the first audio bytes.
+    const timer = setTimeout(() => finish(false), timeoutMs);
+
+    const onResponse = (res: http.IncomingMessage) => {
+      const ok = res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 400;
+      if (!ok) return finish(false);
+      res.on('data', (chunk: Buffer) => { if (chunk.length > 0) finish(true); });
+      res.on('end', () => finish(false));
+      res.on('error', () => finish(false));
+    };
+    // Same user-agent FFmpeg sends: some Shoutcast servers serve HTML otherwise.
+    const headers = { 'User-Agent': 'WinampMPEG/5.0' };
     const req = url.startsWith('https:')
-      ? https.get(url, { rejectUnauthorized: false, timeout: timeoutMs }, onResponse)
-      : http.get(url, { timeout: timeoutMs }, onResponse);
-    req.on('timeout', () => req.destroy(new Error('probe timeout')));
-    req.on('error', () => resolve(false));
+      ? https.get(url, { rejectUnauthorized: false, headers }, onResponse)
+      : http.get(url, { headers }, onResponse);
+    req.on('error', () => finish(false));
   });
 }
 

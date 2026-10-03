@@ -1,4 +1,6 @@
-import { UpstreamMonitor, ProbeFn } from './upstream-monitor';
+import * as http from 'http';
+import { AddressInfo } from 'net';
+import { UpstreamMonitor, ProbeFn, httpProbe } from './upstream-monitor';
 
 const STATIONS = {
   'golden-temple': { url: 'https://live.sgpc.net:8443/' },
@@ -88,5 +90,56 @@ describe('UpstreamMonitor', () => {
     const monitor = new UpstreamMonitor(STATIONS, probe);
     const status = await monitor.check('does-not-exist');
     expect(status.reachable).toBe(false);
+  });
+});
+
+describe('httpProbe', () => {
+  // Real local servers: the bug was a relay that answers 200 but never sends audio.
+  let server: http.Server;
+  let url: string;
+
+  function listen(handler: http.RequestListener): Promise<void> {
+    server = http.createServer(handler);
+    return new Promise((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/live`;
+        resolve();
+      });
+    });
+  }
+
+  afterEach(async () => {
+    server.closeAllConnections();
+    await new Promise((r) => server.close(r));
+  });
+
+  it('is reachable when the source answers 200 and sends audio bytes', async () => {
+    await listen((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+      res.write(Buffer.alloc(64, 1));
+    });
+    expect(await httpProbe(url, 500)).toBe(true);
+  });
+
+  it('is unreachable when the source answers 200 but sends no audio', async () => {
+    await listen((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+      res.flushHeaders();
+    });
+    expect(await httpProbe(url, 300)).toBe(false);
+  });
+
+  it('is unreachable on an error status even with a body', async () => {
+    await listen((_req, res) => {
+      res.writeHead(404);
+      res.end('mount not found');
+    });
+    expect(await httpProbe(url, 500)).toBe(false);
+  });
+
+  it('is unreachable when the connection is refused', async () => {
+    await listen((_req, res) => res.end());
+    server.close();
+    expect(await httpProbe(url, 500)).toBe(false);
   });
 });

@@ -59,8 +59,13 @@ Custom domain: `stream.atthebunga.com` (CNAME → the Fly app, DNS via Vercel;
 cert issued with `flyctl certs add`).
 
 Routes (`streaming-server/src/app.ts`):
-- `GET /health` — per-station `live` / `source-down` / `error`; returns 503 only
-  when a station is in `error` (our pipeline), not when the source is down
+- `GET /health` — per-station `live` / `source-down` / `error` plus site
+  `ok` / `degraded` / `down`; returns 503 (pages UptimeRobot) only when no
+  station is live. One dead station is labelled on the site, never paged.
+- `GET /history?station=<slug|*>&since=<ISO>&limit=<n>` — status transitions
+  logged every 20s to `/data/hls/_status-history.jsonl` (30-day retention).
+  `*` is the site as a whole. Use it to see what happened during an alert:
+  `curl 'https://stream.atthebunga.com/history?since=2026-10-03T12:00:00Z'`
 - `GET /stations` — station metadata plus `hlsPath` / `streamPath` for the web player
 - `HEAD /:station` — returns `Content-Type: application/x-mpegURL` immediately
 - `GET /:station` — serves the rewritten M3U8 playlist (segment URLs rewritten to absolute HTTPS)
@@ -100,7 +105,8 @@ stations; the VM was raised to 1 GB when the count went from two to seven.
 Sis Ganj Sahib (radio.sikhnet.com/proxy/gsisganjsahib/live) was removed on
 2026-10-02: its source drops often while the SikhNet relay still answers the
 upstream probe, so /health blamed our pipeline and returned 503, paging
-UptimeRobot. Fix the probe before re-adding it.
+UptimeRobot. Since then the probe requires actual audio bytes and a single
+station can't page, so it can likely be re-added.
 
 ---
 
