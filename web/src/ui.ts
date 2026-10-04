@@ -1,5 +1,5 @@
 import { Cast, createElement, Pause, Play, RadioTower } from 'lucide';
-import type { Station, StationStatus } from './types';
+import type { Station, StationBadge } from './types';
 
 export interface UICallbacks {
   onSelectStation: (slug: string) => void;
@@ -21,8 +21,6 @@ export class UI {
   private readonly castButton: HTMLButtonElement;
   private readonly statusLine: HTMLElement;
   private readonly liveDots = new Map<string, HTMLElement>();
-  private readonly statusNotes = new Map<string, HTMLElement>();
-  private readonly titles = new Map<string, string>();
   private readonly cards = new Map<string, HTMLElement>();
 
   constructor(root: HTMLElement, private readonly callbacks: UICallbacks) {
@@ -86,8 +84,6 @@ export class UI {
   renderStations(stations: Station[]): void {
     this.stationList.innerHTML = '';
     this.liveDots.clear();
-    this.statusNotes.clear();
-    this.titles.clear();
     this.cards.clear();
 
     for (const station of stations) {
@@ -123,18 +119,10 @@ export class UI {
       liveRow.append(live, liveLabel);
       meta.append(liveRow);
 
-      // Shown only when the broadcaster's source is down, to reassure the
-      // listener the outage is upstream and not on our end.
-      const note = el('div', 'station-note');
-      note.hidden = true;
-      meta.append(note);
-
       card.append(meta);
       card.addEventListener('click', () => this.callbacks.onSelectStation(station.slug));
 
       this.liveDots.set(station.slug, liveRow);
-      this.statusNotes.set(station.slug, note);
-      this.titles.set(station.slug, station.title);
       this.cards.set(station.slug, card);
       this.stationList.append(card);
     }
@@ -146,27 +134,14 @@ export class UI {
     }
   }
 
-  setLive(bySlug: Map<string, StationStatus>): void {
+  setLive(bySlug: Map<string, StationBadge>): void {
     for (const [slug, row] of this.liveDots) {
-      const status = bySlug.get(slug);
-      if (status === undefined) continue;
+      const badge = bySlug.get(slug);
+      if (badge === undefined) continue;
 
-      const live = status === 'live';
-      const sourceDown = status === 'source-down';
-      row.classList.toggle('is-live', live);
-      row.classList.toggle('is-source-down', sourceDown);
-
+      for (const b of BADGES) row.classList.toggle(`is-${b}`, b === badge);
       const label = row.querySelector('.live-label');
-      if (label) label.textContent = live ? 'live' : sourceDown ? 'source offline' : 'offline';
-
-      const note = this.statusNotes.get(slug);
-      if (note) {
-        if (sourceDown) {
-          const title = this.titles.get(slug) ?? 'This station';
-          note.textContent = `${title}'s broadcaster is offline right now, not us. Playback resumes automatically when their source is back.`;
-        }
-        note.hidden = !sourceDown;
-      }
+      if (label) label.textContent = badge;
     }
   }
 
@@ -190,6 +165,8 @@ export class UI {
     this.statusLine.textContent = text;
   }
 }
+
+const BADGES: readonly StationBadge[] = ['down', 'silent', 'choppy', 'healthy'];
 
 function el(tag: string, className: string): HTMLElement {
   const node = document.createElement(tag);

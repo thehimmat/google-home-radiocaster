@@ -130,7 +130,7 @@ export function createApp(
   // Serve static files (logos, cast skin, etc.)
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
-  // Per-station status for the web player's live/"not us" labels, plus a
+  // Per-station status and quality for the web player's down/silent/choppy/healthy badge, plus a
   // site-level status for UptimeRobot. /health returns 503 only when nothing
   // is live (see siteStatus): a single dead station — whoever's fault — is
   // labelled on the site but doesn't page.

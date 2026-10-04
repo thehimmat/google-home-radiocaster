@@ -134,7 +134,7 @@ body {
   background: var(--ink-faint);
 }
 
-.station-live.is-live .live-dot {
+.station-live.is-healthy .live-dot {
   background: var(--live);
   box-shadow: 0 0 6px var(--live);
 }
@@ -146,25 +146,19 @@ body {
   color: var(--ink-faint);
 }
 
-.station-live.is-live .live-label {
+.station-live.is-healthy .live-label {
   color: var(--live);
 }
 
-.station-live.is-source-down .live-dot {
+.station-live.is-choppy .live-dot,
+.station-live.is-silent .live-dot {
   background: var(--warn);
   box-shadow: 0 0 6px var(--warn);
 }
 
-.station-live.is-source-down .live-label {
+.station-live.is-choppy .live-label,
+.station-live.is-silent .live-label {
   color: var(--warn);
-}
-
-.station-note {
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--warn);
-  max-width: 42ch;
 }
 
 .controls {

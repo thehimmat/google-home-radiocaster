@@ -1,4 +1,4 @@
-import type { Station, StationHealth, StationStatus } from './types';
+import type { Station, StationBadge, StationHealth } from './types';
 
 // The stream origin is configurable so the static bundle is host-portable:
 // set VITE_STREAM_BASE=http://localhost:3001 to develop against a local
@@ -35,24 +35,24 @@ export async function fetchStations(base: string = STREAM_BASE): Promise<Station
 }
 
 /**
- * Per-station status keyed by slug. /health responds 503 only when no station
- * is live, but the body always carries per-station data, so non-ok statuses
- * are parsed, not thrown.
- * Missing/unknown status is treated as 'error' so the UI never silently hides a
- * dead stream.
+ * Public badge for one station. Not live (whoever's fault) or no audio in the
+ * last source sample → down; otherwise the sampled quality, or healthy until
+ * the first sample. A stale station with no status field counts as down so
+ * the UI never silently hides a dead stream.
  */
-export async function fetchHealth(base: string = STREAM_BASE): Promise<Map<string, StationStatus>> {
+export function badgeFor(s: StationHealth): StationBadge {
+  const live = s.status === 'live' || (s.status === undefined && s.segmentFresh === true);
+  if (!live) return 'down';
+  return s.quality?.quality ?? 'healthy';
+}
+
+/**
+ * Public badge per station, keyed by slug. /health responds 503 only when no
+ * station is live, but the body always carries per-station data, so non-ok
+ * statuses are parsed, not thrown.
+ */
+export async function fetchHealth(base: string = STREAM_BASE): Promise<Map<string, StationBadge>> {
   const res = await fetch(new URL('/health', base));
   const body: { stations: StationHealth[] } = await res.json();
-  return new Map(
-    body.stations.map((s) => {
-      const status: StationStatus =
-        s.status === 'live' || s.status === 'source-down' || s.status === 'error'
-          ? s.status
-          : s.segmentFresh === true
-            ? 'live'
-            : 'error';
-      return [s.name, status];
-    }),
-  );
+  return new Map(body.stations.map((s) => [s.name, badgeFor(s)]));
 }
