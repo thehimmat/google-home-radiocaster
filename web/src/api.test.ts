@@ -60,13 +60,20 @@ describe('fetchStations', () => {
 });
 
 describe('fetchHealth', () => {
-  it('parses per-station status, including degraded (503) responses', async () => {
+  const station = (name: string, extra: Record<string, unknown>) => ({
+    name, processAlive: true, segmentFresh: true, upstreamReachable: true, status: 'live', ...extra,
+  });
+
+  it('maps every station to a public badge, including on degraded (503) responses', async () => {
     stubFetch(
       {
         status: 'degraded',
         stations: [
-          { name: 'live-one', processAlive: true, segmentFresh: true, upstreamReachable: true, status: 'live' },
-          { name: 'our-fault', processAlive: true, segmentFresh: false, upstreamReachable: true, status: 'error' },
+          station('ok', { quality: { quality: 'healthy', cause: 'none' } }),
+          station('quiet', { quality: { quality: 'silent', cause: 'source' } }),
+          station('gappy', { quality: { quality: 'choppy', cause: 'source' } }),
+          station('ours', { segmentFresh: false, status: 'error' }),
+          station('theirs', { segmentFresh: false, upstreamReachable: false, status: 'source-down' }),
         ],
       },
       false,
@@ -74,27 +81,37 @@ describe('fetchHealth', () => {
     );
 
     const health = await fetchHealth(BASE);
-    expect(health.get('live-one')).toBe('live');
-    expect(health.get('our-fault')).toBe('error');
+    expect(Object.fromEntries(health)).toEqual({
+      ok: 'healthy', quiet: 'silent', gappy: 'choppy', ours: 'down', theirs: 'down',
+    });
   });
 
-  it('surfaces an upstream (source-down) outage on a 200 response', async () => {
-    stubFetch(
-      {
-        status: 'ok',
-        stations: [
-          { name: 'sgpc', processAlive: true, segmentFresh: false, upstreamReachable: false, status: 'source-down' },
-        ],
-      },
-      true,
-      200,
-    );
+  it('never exposes who is at fault: our outage and the source\'s look the same', async () => {
+    stubFetch({ status: 'degraded', stations: [
+      station('ours', { status: 'error' }),
+      station('theirs', { status: 'source-down' }),
+      station('gappy-ours', { quality: { quality: 'healthy', cause: 'us' } }),
+    ] }, true, 200);
 
     const health = await fetchHealth(BASE);
-    expect(health.get('sgpc')).toBe('source-down');
+    expect(health.get('ours')).toBe(health.get('theirs'));
+    expect(health.get('gappy-ours')).toBe('healthy');
   });
 
-  it('falls back to error when a stale station reports no status field', async () => {
+  it('is healthy for a live station not sampled yet (quality null or absent)', async () => {
+    stubFetch({ status: 'ok', stations: [station('new', { quality: null }), station('old', {})] }, true, 200);
+
+    const health = await fetchHealth(BASE);
+    expect(health.get('new')).toBe('healthy');
+    expect(health.get('old')).toBe('healthy');
+  });
+
+  it('is down when the source sample got no audio, even if segments are still fresh', async () => {
+    stubFetch({ status: 'ok', stations: [station('x', { quality: { quality: 'down' } })] }, true, 200);
+    expect((await fetchHealth(BASE)).get('x')).toBe('down');
+  });
+
+  it('falls back to down when a stale station reports no status field', async () => {
     stubFetch(
       { status: 'degraded', stations: [{ name: 'legacy', processAlive: true, segmentFresh: false }] },
       false,
@@ -102,6 +119,6 @@ describe('fetchHealth', () => {
     );
 
     const health = await fetchHealth(BASE);
-    expect(health.get('legacy')).toBe('error');
+    expect(health.get('legacy')).toBe('down');
   });
 });

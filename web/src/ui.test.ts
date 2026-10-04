@@ -72,43 +72,35 @@ describe('UI', () => {
     expect(selected?.getAttribute('data-slug')).toBe('bare');
   });
 
-  it('updates live indicators from a status map', () => {
+  it('shows each station\'s public badge: down / silent / choppy / healthy', () => {
     const { ui } = makeUI();
     ui.renderStations(STATIONS);
 
-    ui.setLive(new Map([['golden-temple', 'live'], ['bare', 'error']]));
+    ui.setLive(new Map([['golden-temple', 'choppy'], ['bare', 'down']]));
 
     const rows = document.querySelectorAll('.station-live');
-    expect(rows[0].classList.contains('is-live')).toBe(true);
-    expect(rows[0].querySelector('.live-label')?.textContent).toBe('live');
-    expect(rows[1].classList.contains('is-live')).toBe(false);
-    expect(rows[1].querySelector('.live-label')?.textContent).toBe('offline');
+    expect(rows[0].classList.contains('is-choppy')).toBe(true);
+    expect(rows[0].querySelector('.live-label')?.textContent).toBe('choppy');
+    expect(rows[1].classList.contains('is-down')).toBe(true);
+    expect(rows[1].querySelector('.live-label')?.textContent).toBe('down');
+
+    // Recovery swaps the class rather than accumulating them.
+    ui.setLive(new Map([['golden-temple', 'healthy']]));
+    expect(rows[0].classList.contains('is-healthy')).toBe(true);
+    expect(rows[0].classList.contains('is-choppy')).toBe(false);
+    expect(rows[0].querySelector('.live-label')?.textContent).toBe('healthy');
   });
 
-  it('shows a "not us" note when a station source is down, and clears it on recovery', () => {
+  it('never tells the listener whose fault an outage is', () => {
     const { ui } = makeUI();
     ui.renderStations(STATIONS);
 
-    ui.setLive(new Map([['golden-temple', 'source-down'], ['bare', 'live']]));
+    ui.setLive(new Map([['golden-temple', 'down'], ['bare', 'silent']]));
 
-    const cards = document.querySelectorAll('.station-card');
-    const gtRow = cards[0].querySelector('.station-live') as HTMLElement;
-    const gtNote = cards[0].querySelector('.station-note') as HTMLElement;
-    expect(gtRow.classList.contains('is-source-down')).toBe(true);
-    expect(gtRow.querySelector('.live-label')?.textContent).toBe('source offline');
-    expect(gtNote.hidden).toBe(false);
-    // Message names the station and makes clear the outage is upstream.
-    expect(gtNote.textContent).toContain('Golden Temple Radio');
-    expect(gtNote.textContent?.toLowerCase()).toContain('not us');
-
-    // The healthy station shows no note.
-    expect((cards[1].querySelector('.station-note') as HTMLElement).hidden).toBe(true);
-
-    // Source recovers → note is hidden and the dot goes live again.
-    ui.setLive(new Map([['golden-temple', 'live']]));
-    expect(gtNote.hidden).toBe(true);
-    expect(gtRow.classList.contains('is-source-down')).toBe(false);
-    expect(gtRow.classList.contains('is-live')).toBe(true);
+    const text = (document.body.textContent ?? '').toLowerCase();
+    expect(text).not.toContain('not us');
+    expect(text).not.toContain('broadcaster');
+    expect(text).not.toContain('source');
   });
 
   it('swaps the play control between play and pause states', () => {

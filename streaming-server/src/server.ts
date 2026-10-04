@@ -1,13 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { createApp, evaluateStations, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { createApp, evaluateStations, readMediaSequence, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
 import { StationBroadcaster } from './broadcaster';
-import { buildHlsArgs } from './ffmpeg-args';
+import { buildHlsArgs, HLS_SEGMENT_SECONDS } from './ffmpeg-args';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusHistory } from './status-history';
 import { StatusTracker } from './status-tracker';
+import { QualityPoller } from './quality-poller';
+import { sampleSource } from './stream-quality';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -192,7 +194,27 @@ new StatusTracker(
   statusHistory,
 ).start(STATUS_INTERVAL_MS);
 
-const app = createApp(STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory);
+// ---------------------------------------------------------------------------
+// Source quality poller — every QUALITY_INTERVAL_MS each station's source is
+// sampled for QUALITY_SAMPLE_MS (decode only, one station at a time) and
+// classified down/silent/choppy/healthy, so "it's cutting out" can be pinned
+// on the broadcaster or on us. Shown on /health, changes logged to /history.
+// ---------------------------------------------------------------------------
+
+const QUALITY_INTERVAL_MS = 5 * 60_000;
+const QUALITY_SAMPLE_MS = 20_000;
+const qualityPoller = new QualityPoller({
+  stations: STATIONS,
+  sample: (url) => sampleSource(url, { spawnFn: spawn, sampleMs: QUALITY_SAMPLE_MS }),
+  readSequence: (station) => readMediaSequence(HLS_ROOT, station),
+  recorder: statusHistory,
+  segmentSeconds: HLS_SEGMENT_SECONDS,
+});
+qualityPoller.start(QUALITY_INTERVAL_MS);
+
+const app = createApp(
+  STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller,
+);
 
 app.listen(PORT, () => {
   console.log(`Streaming server on port ${PORT}`);

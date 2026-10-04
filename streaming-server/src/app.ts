@@ -7,6 +7,7 @@ import { describeClient } from './client-info';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusReader } from './status-history';
 import { StationHealth, siteStatus } from './status-tracker';
+import { QualityReport } from './quality-poller';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -43,6 +44,16 @@ function waitForPlaylist(hlsRoot: string, station: string, timeoutMs = 15000): P
     };
     check();
   });
+}
+
+/** Current EXT-X-MEDIA-SEQUENCE of a station's playlist, or null if unreadable. */
+export function readMediaSequence(hlsRoot: string, station: string): number | null {
+  try {
+    const m = /#EXT-X-MEDIA-SEQUENCE:(\d+)/.exec(fs.readFileSync(playlistPath(hlsRoot, station), 'utf8'));
+    return m ? parseInt(m[1], 10) : null;
+  } catch {
+    return null;
+  }
 }
 
 const SEGMENT_FRESH_MS = 30_000;
@@ -109,6 +120,9 @@ export function createApp(
   upstreamMonitor?: UpstreamMonitor,
   // Status transition log served at /history; omitted → /history is 404.
   history?: StatusReader,
+  // Latest source audio-quality report per station (see QualityPoller), shown
+  // on /health. Informational only: it never affects status or paging.
+  quality?: { latest(station: string): QualityReport | undefined },
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -116,7 +130,7 @@ export function createApp(
   // Serve static files (logos, cast skin, etc.)
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
-  // Per-station status for the web player's live/"not us" labels, plus a
+  // Per-station status and quality for the web player's down/silent/choppy/healthy badge, plus a
   // site-level status for UptimeRobot. /health returns 503 only when nothing
   // is live (see siteStatus): a single dead station — whoever's fault — is
   // labelled on the site but doesn't page.
@@ -127,7 +141,12 @@ export function createApp(
       .status(status === 'down' ? 503 : 200)
       // The web player polls this cross-origin for the live indicators.
       .set('Access-Control-Allow-Origin', '*')
-      .json({ status, stations: stationHealth });
+      .json({
+        status,
+        stations: quality
+          ? stationHealth.map((s) => ({ ...s, quality: quality.latest(s.name) ?? null }))
+          : stationHealth,
+      });
   });
 
   // Status transition log (see StatusHistory), for reconstructing outages:
