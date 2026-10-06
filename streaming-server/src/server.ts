@@ -9,6 +9,7 @@ import { UpstreamMonitor } from './upstream-monitor';
 import { StatusHistory } from './status-history';
 import { StatusTracker } from './status-tracker';
 import { QualityPoller } from './quality-poller';
+import { RestartPolicy } from './restart-policy';
 import { sampleSource } from './stream-quality';
 
 const PORT = process.env.PORT ?? 3001;
@@ -57,6 +58,16 @@ const STATIONS: StationMap = {
 // ---------------------------------------------------------------------------
 
 const ffmpegProcesses = new Map<string, ChildProcess>();
+// Per-station respawn backoff — see RestartPolicy.
+const restartPolicies = new Map<string, RestartPolicy>();
+function restartPolicy(station: string): RestartPolicy {
+  let policy = restartPolicies.get(station);
+  if (!policy) {
+    policy = new RestartPolicy();
+    restartPolicies.set(station, policy);
+  }
+  return policy;
+}
 // /stream broadcasters — created lazily by the app on first listener.
 const broadcasters = new Map<string, StationBroadcaster>();
 
@@ -104,6 +115,7 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
   // M3U8 references them as plain "seg00000.ts" (not absolute filesystem paths).
   const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: dir });
   ffmpegProcesses.set(station, proc);
+  restartPolicy(station).started();
 
   proc.stderr?.on('data', (chunk: Buffer) => {
     const line = chunk.toString();
@@ -113,9 +125,10 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
   });
 
   proc.on('exit', (code, signal) => {
-    console.log(`[ffmpeg:${station}] exited (code=${code} signal=${signal}), restarting in 3s...`);
+    const delay = restartPolicy(station).exited();
+    console.log(`[ffmpeg:${station}] exited (code=${code} signal=${signal}), restarting in ${delay / 1000}s...`);
     ffmpegProcesses.delete(station);
-    setTimeout(() => startFfmpeg(station, upstreamUrl), 3000);
+    setTimeout(() => startFfmpeg(station, upstreamUrl), delay);
   });
 
   console.log(`[ffmpeg:${station}] started (pid=${proc.pid}, start_number=${startNumber})`);
@@ -137,7 +150,9 @@ function startWatchdog(station: string): void {
       const age = Date.now() - fs.statSync(playlistPath(HLS_ROOT, station)).mtimeMs;
       if (age > WATCHDOG_STALE_MS) {
         const proc = ffmpegProcesses.get(station);
-        if (proc) {
+        // A freshly (re)started FFmpeg hasn't had time to write a segment yet;
+        // killing it here just feeds the restart loop.
+        if (proc && restartPolicy(station).runningFor() >= WATCHDOG_STALE_MS) {
           console.log(`[watchdog:${station}] playlist stale (${Math.round(age / 1000)}s) — restarting FFmpeg`);
           proc.kill('SIGKILL');
         }
@@ -202,10 +217,13 @@ new StatusTracker(
 // ---------------------------------------------------------------------------
 
 const QUALITY_INTERVAL_MS = 5 * 60_000;
-const QUALITY_SAMPLE_MS = 20_000;
+// Shoutcast servers (notably SGPC) burst tens of seconds of buffered audio on
+// connect, so skip the first 15s and measure the remaining 25s.
+const QUALITY_SAMPLE_MS = 40_000;
+const QUALITY_WARMUP_MS = 15_000;
 const qualityPoller = new QualityPoller({
   stations: STATIONS,
-  sample: (url) => sampleSource(url, { spawnFn: spawn, sampleMs: QUALITY_SAMPLE_MS }),
+  sample: (url) => sampleSource(url, { spawnFn: spawn, sampleMs: QUALITY_SAMPLE_MS, warmupMs: QUALITY_WARMUP_MS }),
   readSequence: (station) => readMediaSequence(HLS_ROOT, station),
   recorder: statusHistory,
   segmentSeconds: HLS_SEGMENT_SECONDS,

@@ -63,7 +63,7 @@ Routes (`streaming-server/src/app.ts`):
   `ok` / `degraded` / `down`; returns 503 (pages UptimeRobot) only when no
   station is live. One dead station is labelled on the site, never paged.
   Each station also carries `quality` (null until first sampled): every 5 min,
-  one station at a time, the server decodes 20s of the station's *source* and
+  one station at a time, the server decodes 40s of the station's *source* (first 15s ignored: connect burst) and
   classifies it `down` / `silent` / `choppy` / `healthy`. `sourceRatio` is
   source audio seconds per wall second (<0.9 = cutting out); `pipelineRatio`
   is the same for our HLS output; `cause` is `source`, `us` or `none`.
