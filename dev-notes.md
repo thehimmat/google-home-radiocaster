@@ -97,12 +97,8 @@ To add a station:
 
 | Key in config.ts     | Relay URL                                     | Upstream                                    |
 |----------------------|-----------------------------------------------|---------------------------------------------|
-| Golden Temple        | stream.atthebunga.com/golden-temple/stream    | live.sgpc.net:8443 (Shoutcast, AAC+)       |
+| Golden Temple        | stream.atthebunga.com/golden-temple/stream    | live.sgpc.net:8442 (Shoutcast, AAC+)       |
 | San Jose Gurdwara    | stream.atthebunga.com/san-jose/stream         | radio.sikhnet.com/proxy/channel18/live (MP3)|
-| Hazur Sahib          | stream.atthebunga.com/hazur-sahib/stream      | radio.sikhnet.com/proxy/channel7/live (MP3) |
-| Dukh Niwaran Sahib   | stream.atthebunga.com/dukh-niwaran-sahib/stream | radio.sikhnet.com/proxy/channel10/live (MP3)|
-| Bangla Sahib         | stream.atthebunga.com/bangla-sahib/stream     | radio.sikhnet.com/proxy/gbanglasahib/live (MP3, scheduled hours) |
-| Fremont              | stream.atthebunga.com/fremont/stream          | radio.sikhnet.com/proxy/channel13/live (MP3)|
 | SomaFM Groove Salad  | ice1.somafm.com/groovesalad-128-mp3 (direct)  | —                                           |
 
 Each station costs one always-on HLS FFmpeg (~60 MB RSS) plus a lazy one for
