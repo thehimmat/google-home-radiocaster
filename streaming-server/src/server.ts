@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { createApp, evaluateStations, readMediaSequence, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
 import { StationBroadcaster } from './broadcaster';
+import { cleanupHlsRoot } from './hls-cleanup';
 import { buildHlsArgs, HLS_SEGMENT_SECONDS } from './ffmpeg-args';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusHistory } from './status-history';
@@ -147,6 +148,24 @@ function startWatchdog(station: string): void {
     }
   }, WATCHDOG_INTERVAL_MS);
 }
+
+// Reclaim segments stranded by earlier FFmpeg restarts before anything writes
+// to the volume (a full volume crash-looped the server on 2026-10-06), then
+// keep doing it hourly.
+const HLS_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const runHlsCleanup = () => {
+  try {
+    const removed = cleanupHlsRoot(HLS_ROOT, Object.keys(STATIONS));
+    const { bavail, bsize, blocks } = fs.statfsSync(HLS_ROOT);
+    console.log(
+      `[cleanup] removed ${removed} orphaned HLS segments; volume ${Math.round((bavail * bsize) / 1e6)} MB free of ${Math.round((blocks * bsize) / 1e6)} MB`,
+    );
+  } catch (err) {
+    console.error(`[cleanup] failed: ${err}`);
+  }
+};
+runHlsCleanup();
+setInterval(runHlsCleanup, HLS_CLEANUP_INTERVAL_MS);
 
 for (const [name, station] of Object.entries(STATIONS)) {
   startFfmpeg(name, station.url);

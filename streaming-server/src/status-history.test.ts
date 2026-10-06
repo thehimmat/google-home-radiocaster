@@ -68,4 +68,15 @@ describe('StatusHistory', () => {
     history.prune();
     expect(history.read().map((e) => e.station)).toEqual(['new']);
   });
+
+  it('never throws from prune when the disk write fails (e.g. ENOSPC at boot), and keeps the log', () => {
+    const file = tmpFile();
+    const history = new StatusHistory(file);
+    history.record(event('a', new Date().toISOString()));
+    // A directory where the temp file goes makes the write fail, like a full disk.
+    fs.mkdirSync(`${file}.tmp`);
+
+    expect(() => history.prune()).not.toThrow();
+    expect(history.read()).toHaveLength(1);
+  });
 });

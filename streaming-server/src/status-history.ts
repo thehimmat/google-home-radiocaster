@@ -64,14 +64,23 @@ export class StatusHistory implements StatusRecorder, StatusReader {
     return query.limit !== undefined ? matches.slice(-query.limit) : matches;
   }
 
-  /** Drop events older than the retention window. Called at boot and daily. */
+  /**
+   * Drop events older than the retention window. Called at boot and daily.
+   * Best-effort: history must never take the server down (a full volume once
+   * made this throw at boot and crash-loop the machine), so failures are logged.
+   */
   prune(): void {
     const cutoff = this.now() - this.retentionMs;
     const kept = this.readAll().filter((e) => Date.parse(e.ts) >= cutoff);
     if (!fs.existsSync(this.file)) return;
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, kept.map((e) => JSON.stringify(e) + '\n').join(''));
-    fs.renameSync(tmp, this.file);
+    try {
+      fs.writeFileSync(tmp, kept.map((e) => JSON.stringify(e) + '\n').join(''));
+      fs.renameSync(tmp, this.file);
+    } catch (err) {
+      console.error(`[status] could not prune history: ${err}`);
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    }
   }
 
   private readAll(): StatusEvent[] {
