@@ -63,7 +63,7 @@ Routes (`streaming-server/src/app.ts`):
   `ok` / `degraded` / `down`; returns 503 (pages UptimeRobot) only when no
   station is live. One dead station is labelled on the site, never paged.
   Each station also carries `quality` (null until first sampled): every 5 min,
-  one station at a time, the server decodes 40s of the station's *source* (first 15s ignored: connect burst) and
+  one station at a time, the server decodes 20s of the station's *source* and
   classifies it `down` / `silent` / `choppy` / `healthy`. `sourceRatio` is
   source audio seconds per wall second (<0.9 = cutting out); `pipelineRatio`
   is the same for our HLS output; `cause` is `source`, `us` or `none`.
@@ -97,8 +97,12 @@ To add a station:
 
 | Key in config.ts     | Relay URL                                     | Upstream                                    |
 |----------------------|-----------------------------------------------|---------------------------------------------|
-| Golden Temple        | stream.atthebunga.com/golden-temple/stream    | live.sgpc.net:8442 (Shoutcast, AAC+)       |
+| Golden Temple        | stream.atthebunga.com/golden-temple/stream    | live.sgpc.net:8443 (Shoutcast, AAC+)       |
 | San Jose Gurdwara    | stream.atthebunga.com/san-jose/stream         | radio.sikhnet.com/proxy/channel18/live (MP3)|
+| Hazur Sahib          | stream.atthebunga.com/hazur-sahib/stream      | radio.sikhnet.com/proxy/channel7/live (MP3) |
+| Dukh Niwaran Sahib   | stream.atthebunga.com/dukh-niwaran-sahib/stream | radio.sikhnet.com/proxy/channel10/live (MP3)|
+| Bangla Sahib         | stream.atthebunga.com/bangla-sahib/stream     | radio.sikhnet.com/proxy/gbanglasahib/live (MP3, scheduled hours) |
+| Fremont              | stream.atthebunga.com/fremont/stream          | radio.sikhnet.com/proxy/channel13/live (MP3)|
 | SomaFM Groove Salad  | ice1.somafm.com/groovesalad-128-mp3 (direct)  | —                                           |
 
 Each station costs one always-on HLS FFmpeg (~60 MB RSS) plus a lazy one for
