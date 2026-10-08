@@ -15,8 +15,10 @@ export interface Station {
  *   'live'        — streaming normally
  *   'source-down' — the broadcaster's source is unreachable (not our fault)
  *   'error'       — stale on our side (pipeline/server problem)
+ *   'off-air'     — the source isn't broadcasting right now (e.g. a station
+ *                   that only broadcasts at set times)
  */
-export type StationStatus = 'live' | 'source-down' | 'error';
+export type StationStatus = 'live' | 'source-down' | 'error' | 'off-air';
 
 /** Latest source audio-quality sample for a station (server's QualityPoller). */
 export interface StationQuality {
@@ -38,4 +40,4 @@ export interface StationHealth {
  * whose fault a problem is: the server's attribution (status 'source-down'
  * vs 'error', quality.cause) is for /history and debugging, not the site.
  */
-export type StationBadge = 'down' | 'silent' | 'choppy' | 'healthy';
+export type StationBadge = 'down' | 'silent' | 'choppy' | 'healthy' | 'off-air';

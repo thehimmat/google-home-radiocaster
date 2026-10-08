@@ -85,3 +85,13 @@ describe('StatusTracker', () => {
     spy.mockRestore();
   });
 });
+
+describe('siteStatus with off-air stations', () => {
+  it('is ok when every on-air station is live', () => {
+    expect(siteStatus([health('a', 'live'), health('b', 'off-air')])).toBe('ok');
+  });
+
+  it('is down when nothing is live, even if the rest are just off-air', () => {
+    expect(siteStatus([health('a', 'off-air'), health('b', 'off-air')])).toBe('down');
+  });
+});

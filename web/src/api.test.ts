@@ -106,6 +106,13 @@ describe('fetchHealth', () => {
     expect(health.get('old')).toBe('healthy');
   });
 
+  it('is off-air when the station is not broadcasting right now (e.g. a scheduled station)', async () => {
+    stubFetch({ status: 'ok', stations: [
+      station('sched', { segmentFresh: false, upstreamReachable: false, status: 'off-air', quality: { quality: 'healthy' } }),
+    ] }, true, 200);
+    expect((await fetchHealth(BASE)).get('sched')).toBe('off-air');
+  });
+
   it('is down when the source sample got no audio, even if segments are still fresh', async () => {
     stubFetch({ status: 'ok', stations: [station('x', { quality: { quality: 'down' } })] }, true, 200);
     expect((await fetchHealth(BASE)).get('x')).toBe('down');

@@ -5,6 +5,7 @@ import { createApp, readMediaSequence, StationMap } from './app';
 import { QualityReport } from './quality-poller';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusEvent } from './status-history';
+import { AirState } from './station-supervisor';
 
 const FIXTURE_ROOT = path.join('/tmp', 'hls-test-' + process.pid);
 const STATIONS: StationMap = {
@@ -316,5 +317,51 @@ describe('GET /:station/:file (segments)', () => {
   it('returns 404 for segment on unknown station', async () => {
     const res = await request(app).get('/does-not-exist/seg00000.ts');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('off-air and dormant stations (StationSupervisor)', () => {
+  // 'test-station' has a fresh playlist (live); the others have none.
+  const MIXED: StationMap = {
+    'test-station': { url: 'https://example.com/stream', title: 'Live One' },
+    'scheduled': { url: 'https://source.example/scheduled', title: 'Scheduled' },
+    'long-dead': { url: 'https://source.example/dead', title: 'Long Dead' },
+  };
+  const airStates: Record<string, AirState> = { 'test-station': 'live', scheduled: 'off-air', 'long-dead': 'dormant' };
+  const probe = jest.fn(async () => true);
+  const monitor = new UpstreamMonitor(MIXED, probe);
+  const airApp = createApp(
+    MIXED, FIXTURE_ROOT, undefined, undefined, undefined, monitor, undefined, undefined,
+    (station) => airStates[station],
+  );
+
+  it('/stations hides dormant stations but keeps off-air ones', async () => {
+    const res = await request(airApp).get('/stations');
+    expect(res.body.map((s: { slug: string }) => s.slug)).toEqual(['test-station', 'scheduled']);
+  });
+
+  it('/health reports off-air (without probing) and stays 200 while something is live', async () => {
+    probe.mockClear();
+    const res = await request(airApp).get('/health');
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(res.body.stations.map((s: { name: string; status: string }) => [s.name, s.status]));
+    expect(byName).toEqual({ 'test-station': 'live', scheduled: 'off-air', 'long-dead': 'off-air' });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('/health is ok, not degraded, when every on-air station is live', async () => {
+    const res = await request(airApp).get('/health');
+    expect(res.body.status).toBe('ok');
+  });
+
+  it('the playlist answers 503 right away for an off-air station', async () => {
+    const res = await request(airApp).get('/scheduled');
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/off air/i);
+  });
+
+  it('the Cast stream answers 503 for an off-air station instead of spawning FFmpeg', async () => {
+    const res = await request(airApp).get('/long-dead/stream');
+    expect(res.status).toBe(503);
   });
 });

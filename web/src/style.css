@@ -86,6 +86,16 @@ body {
   box-shadow: 0 0 0 1px var(--ink);
 }
 
+/* Off air: the station isn't broadcasting right now, so it can't be played. */
+.station-card:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.station-card:disabled:hover {
+  border-color: var(--line);
+}
+
 .station-art {
   width: 72px;
   height: 72px;

@@ -1,16 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
-import { createApp, evaluateStations, readMediaSequence, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
+import { AirStateFn, createApp, evaluateStations, readMediaSequence, StationMap, HLS_LIST_SIZE, hlsDir, playlistPath } from './app';
 import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './archiver';
 import { StationBroadcaster } from './broadcaster';
-import { cleanupHlsRoot } from './hls-cleanup';
+import { cleanupHlsRoot, clearStationSegments } from './hls-cleanup';
 import { buildHlsArgs, HLS_SEGMENT_SECONDS } from './ffmpeg-args';
-import { UpstreamMonitor } from './upstream-monitor';
+import { httpProbe, UpstreamMonitor } from './upstream-monitor';
 import { StatusHistory } from './status-history';
 import { StatusTracker } from './status-tracker';
 import { QualityPoller } from './quality-poller';
-import { RestartPolicy } from './restart-policy';
+import { EncoderSlots, lastSeenLive, StationSupervisor } from './station-supervisor';
 import { sampleSource } from './stream-quality';
 
 const PORT = process.env.PORT ?? 3001;
@@ -32,23 +32,47 @@ const STATIONS: StationMap = {
     subtitle: 'San Jose, CA',
     artworkUrl: '/artwork/san-jose.jpg',
   },
+  // SikhNet relays, paused on 2026-10-06 (#21) and back now that a dead or
+  // off-schedule source no longer runs FFmpeg (see StationSupervisor).
+  'hazur-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/channel7/live',
+    title: 'Takht Sri Hazur Sahib',
+    subtitle: 'Nanded',
+    artworkUrl: '/artwork/hazur-sahib.jpg',
+  },
+  'dukh-niwaran-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/channel10/live',
+    title: 'Gurdwara Dukh Niwaran Sahib',
+    subtitle: 'Ludhiana',
+  },
+  // Broadcasts on a schedule (roughly 02:00–09:30 and 16:00–21:30 IST) and
+  // shows as "Off air" in between.
+  'bangla-sahib': {
+    url: 'https://radio.sikhnet.com/proxy/gbanglasahib/live',
+    title: 'Gurdwara Bangla Sahib',
+    subtitle: 'Delhi',
+  },
+  'fremont': {
+    url: 'https://radio.sikhnet.com/proxy/channel13/live',
+    title: 'Gurdwara Sahib Fremont',
+    subtitle: 'Fremont, CA',
+  },
 };
+
+// Most HLS encodes allowed at once on the shared CPU. Golden Temple always
+// gets one (see EncoderSlots), so newer stations can't lock it out.
+const MAX_ENCODERS = 4;
+const PRIORITY_STATIONS = ['golden-temple'];
 
 // ---------------------------------------------------------------------------
 // FFmpeg process management
 // ---------------------------------------------------------------------------
 
 const ffmpegProcesses = new Map<string, ChildProcess>();
-// Per-station respawn backoff — see RestartPolicy.
-const restartPolicies = new Map<string, RestartPolicy>();
-function restartPolicy(station: string): RestartPolicy {
-  let policy = restartPolicies.get(station);
-  if (!policy) {
-    policy = new RestartPolicy();
-    restartPolicies.set(station, policy);
-  }
-  return policy;
-}
+// One per station: decides when its FFmpeg runs (only while the source has
+// audio). Created below, once status history is available to seed them.
+const supervisors = new Map<string, StationSupervisor>();
+const airState: AirStateFn = (station) => supervisors.get(station)?.state;
 // /stream broadcasters — created lazily by the app on first listener.
 const broadcasters = new Map<string, StationBroadcaster>();
 
@@ -83,6 +107,7 @@ function getNextStartNumber(station: string): number {
   return 0;
 }
 
+/** Spawns the station's HLS FFmpeg. Its supervisor decides whether to respawn. */
 function startFfmpeg(station: string, upstreamUrl: string): void {
   const dir = hlsDir(HLS_ROOT, station);
   fs.mkdirSync(dir, { recursive: true });
@@ -96,7 +121,6 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
   // M3U8 references them as plain "seg00000.ts" (not absolute filesystem paths).
   const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: dir });
   ffmpegProcesses.set(station, proc);
-  restartPolicy(station).started();
 
   proc.stderr?.on('data', (chunk: Buffer) => {
     const line = chunk.toString();
@@ -106,10 +130,9 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
   });
 
   proc.on('exit', (code, signal) => {
-    const delay = restartPolicy(station).exited();
-    console.log(`[ffmpeg:${station}] exited (code=${code} signal=${signal}), restarting in ${delay / 1000}s...`);
+    console.log(`[ffmpeg:${station}] exited (code=${code} signal=${signal}); re-probing the source`);
     ffmpegProcesses.delete(station);
-    setTimeout(() => startFfmpeg(station, upstreamUrl), delay);
+    supervisors.get(station)?.encoderExited();
   });
 
   console.log(`[ffmpeg:${station}] started (pid=${proc.pid}, start_number=${startNumber})`);
@@ -120,8 +143,9 @@ function startFfmpeg(station: string, upstreamUrl: string): void {
 // ---------------------------------------------------------------------------
 
 // If no new HLS segment has been written in this window, the FFmpeg process is
-// stuck (e.g. internal reconnect loop after upstream drop). Killing it lets
-// the proc.on('exit') handler restart it cleanly.
+// stuck (e.g. internal reconnect loop after upstream drop, or a relay that
+// answers 200 with no audio). Killing it hands the station back to its
+// supervisor, which re-probes and either restarts FFmpeg or goes off air.
 const WATCHDOG_INTERVAL_MS = 20_000;
 const WATCHDOG_STALE_MS = 30_000;
 
@@ -129,11 +153,14 @@ function startWatchdog(station: string): void {
   setInterval(() => {
     try {
       const age = Date.now() - fs.statSync(playlistPath(HLS_ROOT, station)).mtimeMs;
-      if (age > WATCHDOG_STALE_MS) {
+      const supervisor = supervisors.get(station);
+      if (age <= WATCHDOG_STALE_MS) {
+        supervisor?.noteAudio();
+      } else {
         const proc = ffmpegProcesses.get(station);
         // A freshly (re)started FFmpeg hasn't had time to write a segment yet;
         // killing it here just feeds the restart loop.
-        if (proc && restartPolicy(station).runningFor() >= WATCHDOG_STALE_MS) {
+        if (proc && supervisor && supervisor.restartPolicy.runningFor() >= WATCHDOG_STALE_MS) {
           console.log(`[watchdog:${station}] playlist stale (${Math.round(age / 1000)}s) — restarting FFmpeg`);
           proc.kill('SIGKILL');
         }
@@ -162,10 +189,6 @@ const runHlsCleanup = () => {
 runHlsCleanup();
 setInterval(runHlsCleanup, HLS_CLEANUP_INTERVAL_MS);
 
-for (const [name, station] of Object.entries(STATIONS)) {
-  startFfmpeg(name, station.url);
-  startWatchdog(name);
-}
 
 // ---------------------------------------------------------------------------
 // R2 segment archiver (opt-in via R2_* env vars) — feeds the future
@@ -203,8 +226,33 @@ const statusHistory = new StatusHistory(
 );
 statusHistory.prune();
 setInterval(() => statusHistory.prune(), PRUNE_INTERVAL_MS);
+
+// ---------------------------------------------------------------------------
+// Station supervisors — FFmpeg runs only while a station's source has audio.
+// Quiet sources are probed (one short HTTP GET) with backoff instead; after a
+// week with no audio a station is hidden from the site until it comes back.
+// ---------------------------------------------------------------------------
+
+const encoderSlots = new EncoderSlots(MAX_ENCODERS, PRIORITY_STATIONS);
+for (const [name, station] of Object.entries(STATIONS)) {
+  const lastAudioAt = lastSeenLive(statusHistory.read({ station: name }), Date.now());
+  const supervisor = new StationSupervisor(name, {
+    probe: () => httpProbe(station.url),
+    startEncoder: () => startFfmpeg(name, station.url),
+    clearSegments: () => {
+      const removed = clearStationSegments(hlsDir(HLS_ROOT, name));
+      console.log(`[supervisor:${name}] off air: removed ${removed} segments`);
+    },
+    slots: encoderSlots,
+    lastAudioAt,
+  });
+  supervisors.set(name, supervisor);
+  supervisor.start();
+  startWatchdog(name);
+}
+
 new StatusTracker(
-  () => evaluateStations(STATIONS, HLS_ROOT, ffmpegProcesses, upstreamMonitor),
+  () => evaluateStations(STATIONS, HLS_ROOT, ffmpegProcesses, upstreamMonitor, airState),
   statusHistory,
 ).start(STATUS_INTERVAL_MS);
 
@@ -226,11 +274,12 @@ const qualityPoller = new QualityPoller({
   readSequence: (station) => readMediaSequence(HLS_ROOT, station),
   recorder: statusHistory,
   segmentSeconds: HLS_SEGMENT_SECONDS,
+  isActive: (station) => airState(station) === 'live',
 });
 qualityPoller.start(QUALITY_INTERVAL_MS);
 
 const app = createApp(
-  STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller,
+  STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller, airState,
 );
 
 app.listen(PORT, () => {

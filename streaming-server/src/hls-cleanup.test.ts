@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { cleanupHlsRoot } from './hls-cleanup';
+import { cleanupHlsRoot, clearStationSegments } from './hls-cleanup';
 
 describe('cleanupHlsRoot', () => {
   let root: string;
@@ -56,5 +56,30 @@ describe('cleanupHlsRoot', () => {
 
   it('does nothing when the root does not exist yet', () => {
     expect(cleanupHlsRoot(path.join(root, 'missing'), ['gt'])).toBe(0);
+  });
+});
+
+describe('clearStationSegments', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'hls-clear-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('deletes every segment but keeps the playlist, so the next run continues its media sequence', () => {
+    fs.writeFileSync(path.join(root, 'stream.m3u8'), '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:40\n');
+    fs.writeFileSync(path.join(root, 'seg00040.ts'), 'x');
+    fs.writeFileSync(path.join(root, 'seg00041.ts'), 'x');
+
+    expect(clearStationSegments(root)).toBe(2);
+    expect(fs.readdirSync(root)).toEqual(['stream.m3u8']);
+  });
+
+  it('is a no-op for a missing directory', () => {
+    expect(clearStationSegments(path.join(root, 'nope'))).toBe(0);
   });
 });
