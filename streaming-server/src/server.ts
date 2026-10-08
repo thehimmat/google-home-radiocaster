@@ -30,6 +30,7 @@ const STATIONS: StationMap = {
     url: 'https://radio.sikhnet.com/proxy/channel18/live',
     title: 'Gurdwara San Jose',
     subtitle: 'San Jose, CA',
+    artworkUrl: '/artwork/san-jose.jpg',
   },
 };
 

@@ -74,6 +74,28 @@ describe('GET /stations', () => {
     ]);
   });
 
+  it('resolves artwork served from public/ to an absolute URL on this host', async () => {
+    // The web player and Cast devices load artwork from another origin, so a
+    // root-relative path must come back absolute.
+    const localArtApp = createApp(
+      { 'san-jose': { url: 'https://example.com/upstream', artworkUrl: '/artwork/san-jose.jpg' } },
+      FIXTURE_ROOT,
+    );
+    const res = await request(localArtApp)
+      .get('/stations')
+      .set('Host', 'stream.example.com')
+      .set('X-Forwarded-Proto', 'https');
+    expect(res.body[0].artworkUrl).toBe('https://stream.example.com/artwork/san-jose.jpg');
+  });
+
+  it('serves the bundled station artwork', async () => {
+    for (const file of ['san-jose.jpg', 'hazur-sahib.jpg']) {
+      const res = await request(app).get(`/artwork/${file}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toBe('image/jpeg');
+    }
+  });
+
   it('returns CORS header so the web player can fetch it cross-origin', async () => {
     const res = await request(metaApp).get('/stations');
     expect(res.headers['access-control-allow-origin']).toBe('*');

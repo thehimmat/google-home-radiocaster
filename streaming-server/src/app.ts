@@ -15,6 +15,7 @@ export interface StationConfig {
   /** Display name shown by the web player and Cast metadata. Falls back to the slug. */
   title?: string;
   subtitle?: string;
+  /** Absolute URL, or a root-relative path to a file in public/ (e.g. /artwork/x.jpg). */
   artworkUrl?: string;
 }
 
@@ -172,12 +173,15 @@ export function createApp(
   // Station list for the web player: display metadata plus the paths clients
   // should use — hlsPath for browsers (hls.js / Safari), streamPath for Cast.
   // Registered before the /:station routes so the literal path wins.
-  app.get('/stations', (_req, res) => {
+  app.get('/stations', (req, res) => {
+    // Clients load artwork cross-origin (web player, Cast), so local files
+    // are returned as absolute URLs on this host.
+    const origin = `${req.protocol}://${req.get('host')}`;
     const list = Object.entries(stations).map(([slug, station]) => ({
       slug,
       title: station.title ?? slug,
       subtitle: station.subtitle ?? null,
-      artworkUrl: station.artworkUrl ?? null,
+      artworkUrl: station.artworkUrl?.startsWith('/') ? `${origin}${station.artworkUrl}` : station.artworkUrl ?? null,
       hlsPath: `/${slug}`,
       streamPath: `/${slug}/stream`,
     }));
