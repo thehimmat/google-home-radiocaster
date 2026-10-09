@@ -47,3 +47,25 @@ export function cleanupHlsRoot(hlsRoot: string, stations: string[]): number {
   }
   return removed;
 }
+
+/**
+ * Deletes all of one station's segments when it goes off air, so a quiet
+ * station holds no space on the volume. The playlist stays: FFmpeg reads its
+ * media sequence on the next start so clients never see it jump backwards.
+ * Returns the number of segment files deleted.
+ */
+export function clearStationSegments(dir: string): number {
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const file of files) {
+    if (!file.endsWith('.ts')) continue;
+    fs.rmSync(path.join(dir, file), { force: true });
+    removed++;
+  }
+  return removed;
+}

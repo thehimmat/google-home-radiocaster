@@ -7,8 +7,11 @@ import { StatusEvent, StatusRecorder } from './status-history';
  *                   (the broadcaster's outage, e.g. SGPC — not our fault)
  *   'error'       — segments stale but the source answers, so the break is
  *                   on our side (FFmpeg/pipeline)
+ *   'off-air'     — the StationSupervisor found no audio at the source, so no
+ *                   FFmpeg runs (a scheduled station between broadcasts, or a
+ *                   dormant one hidden from the site)
  */
-export type StationStatus = 'live' | 'source-down' | 'error';
+export type StationStatus = 'live' | 'source-down' | 'error' | 'off-air';
 
 export interface StationHealth {
   name: string;
@@ -20,7 +23,7 @@ export interface StationHealth {
 
 /**
  * Site-level status:
- *   'ok'       — every station live
+ *   'ok'       — every on-air station live
  *   'degraded' — some stations out; labelled per-station on the site, no page
  *   'down'     — nothing live; the pipeline or box is broken, so page
  * 'down' deliberately ignores attribution: every source "unreachable" at once
@@ -30,8 +33,9 @@ export type SiteStatus = 'ok' | 'degraded' | 'down';
 
 export function siteStatus(stations: StationHealth[]): SiteStatus {
   const live = stations.filter((s) => s.status === 'live').length;
+  const onAir = stations.filter((s) => s.status !== 'off-air').length;
   if (live === 0) return 'down';
-  return live === stations.length ? 'ok' : 'degraded';
+  return live === onAir ? 'ok' : 'degraded';
 }
 
 export interface HealthSnapshot {

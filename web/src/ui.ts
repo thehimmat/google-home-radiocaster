@@ -21,7 +21,7 @@ export class UI {
   private readonly castButton: HTMLButtonElement;
   private readonly statusLine: HTMLElement;
   private readonly liveDots = new Map<string, HTMLElement>();
-  private readonly cards = new Map<string, HTMLElement>();
+  private readonly cards = new Map<string, HTMLButtonElement>();
 
   constructor(root: HTMLElement, private readonly callbacks: UICallbacks) {
     root.innerHTML = '';
@@ -87,7 +87,7 @@ export class UI {
     this.cards.clear();
 
     for (const station of stations) {
-      const card = el('button', 'station-card');
+      const card = el('button', 'station-card') as HTMLButtonElement;
       card.setAttribute('data-slug', station.slug);
 
       if (station.artworkUrl) {
@@ -141,7 +141,16 @@ export class UI {
 
       for (const b of BADGES) row.classList.toggle(`is-${b}`, b === badge);
       const label = row.querySelector('.live-label');
-      if (label) label.textContent = badge;
+      if (label) label.textContent = badge === 'off-air' ? 'off air' : badge;
+      const card = this.cards.get(slug);
+      if (card) card.disabled = badge === 'off-air';
+    }
+
+    // Off-air stations sink below the playable ones, keeping their original
+    // order within each group (this.cards is in /stations order).
+    const all = [...this.cards.values()];
+    for (const card of [...all.filter((c) => !c.disabled), ...all.filter((c) => c.disabled)]) {
+      this.stationList.append(card);
     }
   }
 
@@ -166,7 +175,7 @@ export class UI {
   }
 }
 
-const BADGES: readonly StationBadge[] = ['down', 'silent', 'choppy', 'healthy'];
+const BADGES: readonly StationBadge[] = ['down', 'silent', 'choppy', 'healthy', 'off-air'];
 
 function el(tag: string, className: string): HTMLElement {
   const node = document.createElement(tag);

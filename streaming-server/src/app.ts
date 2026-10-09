@@ -8,6 +8,7 @@ import { UpstreamMonitor } from './upstream-monitor';
 import { StatusReader } from './status-history';
 import { StationHealth, siteStatus } from './status-tracker';
 import { QualityReport } from './quality-poller';
+import { AirState } from './station-supervisor';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -69,10 +70,17 @@ export async function evaluateStations(
   hlsRoot: string,
   ffmpegProcesses?: Map<string, ChildProcess>,
   upstreamMonitor?: UpstreamMonitor,
+  airState?: AirStateFn,
 ): Promise<StationHealth[]> {
   return Promise.all(
     Object.keys(stations).map(async (name): Promise<StationHealth> => {
       const processAlive = ffmpegProcesses ? ffmpegProcesses.has(name) : null;
+
+      // The supervisor already probes quiet sources on its own schedule, and
+      // no FFmpeg runs for them, so there is nothing more to check.
+      if (isOffAir(airState, name)) {
+        return { name, processAlive, segmentFresh: false, upstreamReachable: false, status: 'off-air' };
+      }
 
       // Check that the playlist exists and was written recently.
       let segmentFresh: boolean;
@@ -105,6 +113,14 @@ export async function evaluateStations(
   );
 }
 
+/** Current StationSupervisor state per station; undefined when unsupervised. */
+export type AirStateFn = (station: string) => AirState | undefined;
+
+function isOffAir(airState: AirStateFn | undefined, station: string): boolean {
+  const state = airState?.(station);
+  return state === 'off-air' || state === 'dormant';
+}
+
 export function createApp(
   stations: StationMap,
   hlsRoot: string,
@@ -124,6 +140,9 @@ export function createApp(
   // Latest source audio-quality report per station (see QualityPoller), shown
   // on /health. Informational only: it never affects status or paging.
   quality?: { latest(station: string): QualityReport | undefined },
+  // StationSupervisor state per station. Dormant stations are hidden from
+  // /stations; off-air ones stay listed and /health marks them off-air.
+  airState?: AirStateFn,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -136,7 +155,7 @@ export function createApp(
   // is live (see siteStatus): a single dead station — whoever's fault — is
   // labelled on the site but doesn't page.
   app.get('/health', async (_req, res) => {
-    const stationHealth = await evaluateStations(stations, hlsRoot, ffmpegProcesses, upstreamMonitor);
+    const stationHealth = await evaluateStations(stations, hlsRoot, ffmpegProcesses, upstreamMonitor, airState);
     const status = siteStatus(stationHealth);
     res
       .status(status === 'down' ? 503 : 200)
@@ -177,14 +196,16 @@ export function createApp(
     // Clients load artwork cross-origin (web player, Cast), so local files
     // are returned as absolute URLs on this host.
     const origin = `${req.protocol}://${req.get('host')}`;
-    const list = Object.entries(stations).map(([slug, station]) => ({
-      slug,
-      title: station.title ?? slug,
-      subtitle: station.subtitle ?? null,
-      artworkUrl: station.artworkUrl?.startsWith('/') ? `${origin}${station.artworkUrl}` : station.artworkUrl ?? null,
-      hlsPath: `/${slug}`,
-      streamPath: `/${slug}/stream`,
-    }));
+    const list = Object.entries(stations)
+      .filter(([slug]) => airState?.(slug) !== 'dormant')
+      .map(([slug, station]) => ({
+        slug,
+        title: station.title ?? slug,
+        subtitle: station.subtitle ?? null,
+        artworkUrl: station.artworkUrl?.startsWith('/') ? `${origin}${station.artworkUrl}` : station.artworkUrl ?? null,
+        hlsPath: `/${slug}`,
+        streamPath: `/${slug}/stream`,
+      }));
     res.set('Access-Control-Allow-Origin', '*').json(list);
   });
 
@@ -197,6 +218,10 @@ export function createApp(
     const { station } = req.params;
     if (!stations[station]) {
       res.status(404).json({ error: `Unknown station. Available: ${Object.keys(stations).join(', ')}` });
+      return;
+    }
+    if (isOffAir(airState, station)) {
+      res.status(503).set('Access-Control-Allow-Origin', '*').json({ error: 'Station is off air right now.' });
       return;
     }
 
@@ -233,6 +258,11 @@ export function createApp(
   app.get('/:station/stream', (req, res) => {
     const { station } = req.params;
     if (!stations[station]) { res.sendStatus(404); return; }
+    // Otherwise the broadcaster would spawn FFmpeg against a dead source.
+    if (isOffAir(airState, station)) {
+      res.status(503).set('Access-Control-Allow-Origin', '*').json({ error: 'Station is off air right now.' });
+      return;
+    }
 
     res
       .set('Content-Type', 'audio/aac')

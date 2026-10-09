@@ -90,3 +90,20 @@ describe('QualityPoller', () => {
     expect(events).toEqual([]);
   });
 });
+
+describe('QualityPoller with off-air stations', () => {
+  it('does not sample a station that is not live, so off-air sources cost no FFmpeg', async () => {
+    const sample = jest.fn(async (): Promise<SourceSample> => ({ gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [] }));
+    const poller = new QualityPoller({
+      stations: { live: { url: 'https://a' }, quiet: { url: 'https://b' } },
+      sample,
+      readSequence: () => null,
+      recorder: { record: () => undefined },
+      isActive: (station) => station === 'live',
+    });
+    await poller.poll('quiet');
+    await poller.poll('live');
+    expect(sample).toHaveBeenCalledTimes(1);
+    expect(sample).toHaveBeenCalledWith('https://a');
+  });
+});

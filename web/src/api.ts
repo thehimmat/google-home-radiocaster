@@ -35,12 +35,14 @@ export async function fetchStations(base: string = STREAM_BASE): Promise<Station
 }
 
 /**
- * Public badge for one station. Not live (whoever's fault) or no audio in the
+ * Public badge for one station. Off air when the source isn't broadcasting
+ * (the server runs nothing for it). Otherwise not live (whoever's fault) or no audio in the
  * last source sample → down; otherwise the sampled quality, or healthy until
  * the first sample. A stale station with no status field counts as down so
  * the UI never silently hides a dead stream.
  */
 export function badgeFor(s: StationHealth): StationBadge {
+  if (s.status === 'off-air') return 'off-air';
   const live = s.status === 'live' || (s.status === undefined && s.segmentFresh === true);
   if (!live) return 'down';
   return s.quality?.quality ?? 'healthy';

@@ -56,6 +56,8 @@ export interface QualityPollerOpts {
   recorder: StatusRecorder;
   now?: () => number;
   segmentSeconds?: number;
+  /** Only stations this returns true for are sampled (the live ones). */
+  isActive?: (station: string) => boolean;
 }
 
 const round2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
@@ -78,6 +80,8 @@ export class QualityPoller {
   async poll(station: string): Promise<void> {
     const url = this.opts.stations[station]?.url;
     if (!url) return;
+    // An off-air source has no audio to grade, and sampling it costs an FFmpeg.
+    if (this.opts.isActive && !this.opts.isActive(station)) return;
 
     let sample: SourceSample;
     try {

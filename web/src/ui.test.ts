@@ -91,6 +91,28 @@ describe('UI', () => {
     expect(rows[0].querySelector('.live-label')?.textContent).toBe('healthy');
   });
 
+  it('shows off-air stations as "off air", not playable, below the others', () => {
+    const { ui, callbacks } = makeUI();
+    ui.renderStations(STATIONS);
+
+    ui.setLive(new Map([['golden-temple', 'off-air'], ['bare', 'healthy']]));
+
+    const cards = [...document.querySelectorAll<HTMLButtonElement>('.station-card')];
+    expect(cards.map((c) => c.dataset.slug)).toEqual(['bare', 'golden-temple']);
+    const offAir = cards[1];
+    expect(offAir.disabled).toBe(true);
+    expect(offAir.querySelector('.station-live')?.classList.contains('is-off-air')).toBe(true);
+    expect(offAir.querySelector('.live-label')?.textContent).toBe('off air');
+    offAir.click();
+    expect(callbacks.onSelectStation).not.toHaveBeenCalled();
+
+    // Back on air: playable again and back in its original place.
+    ui.setLive(new Map([['golden-temple', 'healthy'], ['bare', 'healthy']]));
+    const after = [...document.querySelectorAll<HTMLButtonElement>('.station-card')];
+    expect(after.map((c) => c.dataset.slug)).toEqual(['golden-temple', 'bare']);
+    expect(after[0].disabled).toBe(false);
+  });
+
   it('never tells the listener whose fault an outage is', () => {
     const { ui } = makeUI();
     ui.renderStations(STATIONS);
