@@ -130,6 +130,13 @@ body {
   margin-top: 2px;
 }
 
+.station-note {
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-style: italic;
+  margin-top: 4px;
+}
+
 .station-live {
   display: flex;
   align-items: center;

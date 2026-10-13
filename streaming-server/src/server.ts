@@ -25,6 +25,10 @@ const STATIONS: StationMap = {
     title: 'Golden Temple Radio',
     subtitle: 'Amritsar',
     artworkUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Amritsar_golden_temple_night_view.JPG/1280px-Amritsar_golden_temple_night_view.JPG',
+    // Nightly break after Sukhasan: /history showed the source silent from
+    // ~16:30 to ~21:15 UTC (about 10 pm to 2:45 am IST) every night of
+    // Oct 6-9 2026. Shifts a little with the season.
+    quietHours: { startUtc: '16:00', endUtc: '21:15' },
   },
   'san-jose': {
     url: 'https://radio.sikhnet.com/proxy/channel18/live',
@@ -251,10 +255,11 @@ for (const [name, station] of Object.entries(STATIONS)) {
   startWatchdog(name);
 }
 
-new StatusTracker(
+const statusTracker = new StatusTracker(
   () => evaluateStations(STATIONS, HLS_ROOT, ffmpegProcesses, upstreamMonitor, airState),
   statusHistory,
-).start(STATUS_INTERVAL_MS);
+);
+statusTracker.start(STATUS_INTERVAL_MS);
 
 // ---------------------------------------------------------------------------
 // Source quality poller — every QUALITY_INTERVAL_MS each station's source is
@@ -280,6 +285,7 @@ qualityPoller.start(QUALITY_INTERVAL_MS);
 
 const app = createApp(
   STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller, airState,
+  () => statusTracker.latest(),
 );
 
 app.listen(PORT, () => {

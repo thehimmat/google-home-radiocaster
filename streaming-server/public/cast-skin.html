@@ -89,6 +89,18 @@
       letter-spacing: 0.5px;
     }
 
+    .live-status {
+      margin-top: 24px;
+      font-size: 20px;
+      color: #fef8e8;
+    }
+
+    .live-status .detail {
+      margin-top: 6px;
+      font-size: 16px;
+      color: #a8a09a;
+    }
+
     .loading {
       margin-top: 50px;
     }
@@ -154,6 +166,12 @@
         <div class="station-info" id="station">Stream atTheBunga</div>
       </div>
 
+      <!-- Live status from /now-playing (issue #26); hidden until it answers. -->
+      <div class="live-status" id="liveStatus" style="display: none;">
+        <div class="headline" id="liveHeadline"></div>
+        <div class="detail" id="liveDetail"></div>
+      </div>
+
       <div class="loading" id="loading">
         <div class="spinner"></div>
         <div class="status-message" id="statusMessage">Connecting to stream...</div>
@@ -179,7 +197,53 @@
         metadata.subtitle || metadata.artist || 'Stream atTheBunga';
       const image = metadata.images && metadata.images[0] && metadata.images[0].url;
       document.getElementById('artworkImage').src = image || '/logos/atthebunga-logo-1A.png';
+      watchNowPlaying(e.value && (e.value.contentUrl || e.value.contentId));
     });
+
+    // Live status text. Polls /now-playing for the station in the loaded URL
+    // (https://<host>/<slug>/stream). Cast plays raw AAC, so this can't ride
+    // in the stream; a 10s poll is cheap and works on every device.
+    const NOW_PLAYING_POLL_MS = 10000;
+    let nowPlayingTimer = null;
+
+    function stationSlug(url) {
+      try {
+        const m = /^\/([^/]+)\/stream$/.exec(new URL(url).pathname);
+        return m ? { origin: new URL(url).origin, slug: m[1] } : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function showNowPlaying(np) {
+      const box = document.getElementById('liveStatus');
+      if (!np || np.state === 'live' && !np.detail) {
+        box.style.display = 'none';
+        return;
+      }
+      let detail = np.detail || '';
+      if (np.resumesAt) {
+        const t = new Date(np.resumesAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        detail = (detail ? detail + ' ' : '') + 'Usually resumes around ' + t + '.';
+      }
+      document.getElementById('liveHeadline').textContent = np.headline;
+      document.getElementById('liveDetail').textContent = detail;
+      box.style.display = '';
+    }
+
+    function watchNowPlaying(url) {
+      clearInterval(nowPlayingTimer);
+      nowPlayingTimer = null;
+      showNowPlaying(null);
+      const target = url && stationSlug(url);
+      if (!target) return;
+      const poll = () => fetch(target.origin + '/now-playing/' + target.slug, { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then(showNowPlaying)
+        .catch(() => { /* keep the last text; next poll retries */ });
+      poll();
+      nowPlayingTimer = setInterval(poll, NOW_PLAYING_POLL_MS);
+    }
 
     binder.addEventListener(cast.framework.ui.PlayerDataEventType.STATE_CHANGED, (e) => {
       const playing = e.value === cast.framework.ui.State.PLAYING;

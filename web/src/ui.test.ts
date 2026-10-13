@@ -176,3 +176,17 @@ describe('UI', () => {
     expect(callbacks.onVolume).toHaveBeenCalledWith(0.4);
   });
 });
+
+describe('UI.setNowPlaying', () => {
+  it('shows a status line under a station and clears it when there is nothing to say', () => {
+    const { ui } = makeUI();
+    ui.renderStations(STATIONS);
+    ui.setNowPlaying(new Map([['golden-temple', 'Kirtan is paused for the night.']]));
+    const card = document.querySelector('.station-card[data-slug="golden-temple"]');
+    expect(card?.querySelector('.station-note')?.textContent).toBe('Kirtan is paused for the night.');
+    expect((card?.querySelector('.station-note') as HTMLElement).hidden).toBe(false);
+
+    ui.setNowPlaying(new Map([['golden-temple', null]]));
+    expect((card?.querySelector('.station-note') as HTMLElement).hidden).toBe(true);
+  });
+});
