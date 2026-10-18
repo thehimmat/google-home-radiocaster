@@ -60,8 +60,10 @@ const STATIONS: StationMap = {
 };
 
 // Most HLS encodes allowed at once on the shared CPU. Golden Temple always
-// gets one (see EncoderSlots), so newer stations can't lock it out.
-const MAX_ENCODERS = 4;
+// gets one (see EncoderSlots), so newer stations can't lock it out. At 4,
+// every live pipeline ran below real time (pipelineRatio 0.70-0.88 on
+// 2026-10-18), which listeners hear as choppy audio.
+const MAX_ENCODERS = 3;
 const PRIORITY_STATIONS = ['golden-temple'];
 
 // ---------------------------------------------------------------------------

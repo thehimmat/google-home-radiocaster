@@ -113,7 +113,8 @@ lazy one for `/stream` while anyone is casting. A station whose source is quiet
 runs no FFmpeg: `StationSupervisor` probes it (one short HTTP GET, backing off
 to every 5 minutes) and the site shows it as "Off air". After 7 days with no
 audio it is hidden from `/stations` until its source comes back. At most
-`MAX_ENCODERS` (4) encodes run at once; Golden Temple always gets a slot.
+`MAX_ENCODERS` (3) encodes run at once; Golden Temple always gets a slot.
+At 4, the shared CPU couldn't keep every pipeline at real time (choppy audio).
 Watch `flyctl status` memory after adding stations; the VM was raised to 1 GB
 when the count went from two to seven.
 
