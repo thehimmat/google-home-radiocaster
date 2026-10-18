@@ -18,9 +18,11 @@ import { StatusEvent } from './status-history';
 export type AirState = 'live' | 'off-air' | 'dormant';
 
 /**
- * Caps how many HLS encodes run at once on the shared CPU. Priority stations
- * always get a slot (they still count toward the total), so a reliable
- * station like Golden Temple is never locked out by newer ones.
+ * Caps how many HLS encodes run at once on the shared CPU. Each priority
+ * station not currently encoding keeps one slot reserved, so a reliable
+ * station like Golden Temple is never locked out by newer ones, and the total
+ * never exceeds the cap (it used to let Golden Temple run one over, which
+ * made every pipeline fall behind real time).
  */
 export class EncoderSlots {
   private readonly held = new Set<string>();
@@ -32,7 +34,9 @@ export class EncoderSlots {
 
   tryAcquire(station: string): boolean {
     if (this.held.has(station)) return true;
-    if (!this.priority.has(station) && this.held.size >= this.max) return false;
+    const reserved = [...this.priority].filter((p) => !this.held.has(p)).length;
+    const free = this.max - this.held.size - (this.priority.has(station) ? 0 : reserved);
+    if (free <= 0) return false;
     this.held.add(station);
     return true;
   }

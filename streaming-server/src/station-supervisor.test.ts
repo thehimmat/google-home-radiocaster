@@ -171,11 +171,19 @@ describe('EncoderSlots', () => {
     expect(slots.tryAcquire('c')).toBe(true);
   });
 
-  it('lets priority stations through even when full, so Golden Temple is never locked out', () => {
-    const slots = new EncoderSlots(1, ['golden-temple']);
+  it('keeps a slot free for a priority station, so Golden Temple is never locked out', () => {
+    const slots = new EncoderSlots(2, ['golden-temple']);
     expect(slots.tryAcquire('a')).toBe(true);
+    expect(slots.tryAcquire('b')).toBe(false);
     expect(slots.tryAcquire('golden-temple')).toBe(true);
     expect(slots.inUse()).toBe(2);
+  });
+
+  it('never runs more encoders than the cap, priority stations included', () => {
+    const slots = new EncoderSlots(3, ['golden-temple']);
+    for (const s of ['a', 'b', 'c', 'golden-temple']) slots.tryAcquire(s);
+    expect(slots.inUse()).toBe(3);
+    expect(slots.tryAcquire('golden-temple')).toBe(true);
   });
 
   it('is idempotent per station', () => {
