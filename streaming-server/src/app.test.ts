@@ -6,6 +6,7 @@ import { QualityReport } from './quality-poller';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusEvent } from './status-history';
 import { AirState } from './station-supervisor';
+import { HealthSnapshot } from './status-tracker';
 
 const FIXTURE_ROOT = path.join('/tmp', 'hls-test-' + process.pid);
 const STATIONS: StationMap = {
@@ -363,5 +364,58 @@ describe('off-air and dormant stations (StationSupervisor)', () => {
   it('the Cast stream answers 503 for an off-air station instead of spawning FFmpeg', async () => {
     const res = await request(airApp).get('/long-dead/stream');
     expect(res.status).toBe(503);
+  });
+});
+
+describe('GET /now-playing', () => {
+  const NP_STATIONS: StationMap = {
+    'golden-temple': { url: 'https://example.com/gt', quietHours: { startUtc: '00:00', endUtc: '23:59' } },
+    'scheduled': { url: 'https://example.com/scheduled' },
+    'long-dead': { url: 'https://example.com/dead' },
+  };
+  const snapshot: HealthSnapshot = {
+    status: 'ok',
+    stations: [
+      { name: 'golden-temple', processAlive: true, segmentFresh: true, upstreamReachable: true, status: 'live' },
+      { name: 'scheduled', processAlive: false, segmentFresh: false, upstreamReachable: false, status: 'off-air' },
+      { name: 'long-dead', processAlive: false, segmentFresh: false, upstreamReachable: false, status: 'off-air' },
+    ],
+  };
+  const silentGt = {
+    latest: (s: string): QualityReport | undefined => s === 'golden-temple'
+      ? { quality: 'silent', cause: 'source', sourceRatio: 1, pipelineRatio: 1, checkedAt: 'x' }
+      : undefined,
+  };
+  const airStates: Record<string, AirState> = { 'golden-temple': 'live', scheduled: 'off-air', 'long-dead': 'dormant' };
+  const npApp = createApp(
+    NP_STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, silentGt,
+    (s) => airStates[s], () => snapshot,
+  );
+
+  it('builds the text from the latest status snapshot and quality', async () => {
+    const res = await request(npApp).get('/now-playing/golden-temple');
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toMatchObject({ station: 'golden-temple', state: 'quiet', headline: 'Kirtan is paused for the night' });
+    expect(res.body.resumesAt).toEqual(expect.any(String));
+  });
+
+  it('lists every non-dormant station', async () => {
+    const res = await request(npApp).get('/now-playing');
+    expect(res.status).toBe(200);
+    expect(res.body.map((n: { station: string; state: string }) => [n.station, n.state]))
+      .toEqual([['golden-temple', 'quiet'], ['scheduled', 'off-air']]);
+  });
+
+  it('404s for unknown and dormant stations', async () => {
+    expect((await request(npApp).get('/now-playing/nope')).status).toBe(404);
+    expect((await request(npApp).get('/now-playing/long-dead')).status).toBe(404);
+  });
+
+  it('is unknown before the first status check', async () => {
+    const coldApp = createApp(NP_STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, undefined, undefined, () => null);
+    const res = await request(coldApp).get('/now-playing/golden-temple');
+    expect(res.body.state).toBe('unknown');
   });
 });

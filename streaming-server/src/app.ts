@@ -6,9 +6,10 @@ import { StationBroadcaster, SpawnFn } from './broadcaster';
 import { describeClient } from './client-info';
 import { UpstreamMonitor } from './upstream-monitor';
 import { StatusReader } from './status-history';
-import { StationHealth, siteStatus } from './status-tracker';
+import { HealthSnapshot, StationHealth, siteStatus } from './status-tracker';
 import { QualityReport } from './quality-poller';
 import { AirState } from './station-supervisor';
+import { buildNowPlaying, QuietHours } from './now-playing';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -18,6 +19,8 @@ export interface StationConfig {
   subtitle?: string;
   /** Absolute URL, or a root-relative path to a file in public/ (e.g. /artwork/x.jpg). */
   artworkUrl?: string;
+  /** When the source is usually silent each day; lets /now-playing say when it resumes. */
+  quietHours?: QuietHours;
 }
 
 export type StationMap = Record<string, StationConfig>;
@@ -143,6 +146,8 @@ export function createApp(
   // StationSupervisor state per station. Dormant stations are hidden from
   // /stations; off-air ones stay listed and /health marks them off-air.
   airState?: AirStateFn,
+  // Latest StatusTracker snapshot, for /now-playing (a read, never a probe).
+  statusSnapshot?: () => HealthSnapshot | null,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -207,6 +212,28 @@ export function createApp(
         streamPath: `/${slug}/stream`,
       }));
     res.set('Access-Control-Allow-Origin', '*').json(list);
+  });
+
+  // Status text for the Cast receiver and web player (issue #26), polled
+  // every ~10s. Registered before the /:station routes so the literal wins.
+  const nowPlaying = (slug: string) => buildNowPlaying({
+    station: slug,
+    status: statusSnapshot?.()?.stations.find((s) => s.name === slug)?.status,
+    quality: quality?.latest(slug)?.quality,
+    quietHours: stations[slug].quietHours,
+    now: Date.now(),
+  });
+  const listed = (slug: string) => Boolean(stations[slug]) && airState?.(slug) !== 'dormant';
+
+  app.get('/now-playing', (_req, res) => {
+    res.set('Access-Control-Allow-Origin', '*').set('Cache-Control', 'no-store')
+      .json(Object.keys(stations).filter(listed).map(nowPlaying));
+  });
+
+  app.get('/now-playing/:station', (req, res) => {
+    const slug = req.params.station;
+    if (!listed(slug)) { res.sendStatus(404); return; }
+    res.set('Access-Control-Allow-Origin', '*').set('Cache-Control', 'no-store').json(nowPlaying(slug));
   });
 
   app.head('/:station', (req, res) => {

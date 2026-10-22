@@ -118,6 +118,9 @@ export class UI {
       liveLabel.textContent = 'checking';
       liveRow.append(live, liveLabel);
       meta.append(liveRow);
+      const note = el('div', 'station-note');
+      note.hidden = true;
+      meta.append(note);
 
       card.append(meta);
       card.addEventListener('click', () => this.callbacks.onSelectStation(station.slug));
@@ -151,6 +154,16 @@ export class UI {
     const all = [...this.cards.values()];
     for (const card of [...all.filter((c) => !c.disabled), ...all.filter((c) => c.disabled)]) {
       this.stationList.append(card);
+    }
+  }
+
+  /** Status line per station (see statusLine); null hides it. */
+  setNowPlaying(bySlug: Map<string, string | null>): void {
+    for (const [slug, text] of bySlug) {
+      const note = this.cards.get(slug)?.querySelector<HTMLElement>('.station-note');
+      if (!note) continue;
+      note.textContent = text ?? '';
+      note.hidden = !text;
     }
   }
 

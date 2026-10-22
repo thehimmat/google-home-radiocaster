@@ -41,3 +41,14 @@ export interface StationHealth {
  * vs 'error', quality.cause) is for /history and debugging, not the site.
  */
 export type StationBadge = 'down' | 'silent' | 'choppy' | 'healthy' | 'off-air';
+
+/** One entry from GET /now-playing: the status text for a station. */
+export interface NowPlaying {
+  station: string;
+  state: 'live' | 'quiet' | 'off-air' | 'down' | 'unknown';
+  headline: string;
+  detail: string | null;
+  /** When the source usually comes back (ISO); shown in the listener's time. */
+  resumesAt: string | null;
+  updatedAt: string;
+}

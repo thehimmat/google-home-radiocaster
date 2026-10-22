@@ -1,10 +1,12 @@
 import { fetchHealth, fetchStations } from './api';
 import { CastController } from './cast-controller';
+import { fetchNowPlaying, statusLine } from './now-playing';
 import { LocalPlayer } from './player';
 import type { Station } from './types';
 import { UI } from './ui';
 
 const HEALTH_POLL_MS = 30_000;
+const NOW_PLAYING_POLL_MS = 10_000;
 
 let stations: Station[] = [];
 let selected: Station | null = null;
@@ -97,6 +99,15 @@ async function pollHealth(): Promise<void> {
   }
 }
 
+async function pollNowPlaying(): Promise<void> {
+  try {
+    const byStation = await fetchNowPlaying();
+    ui.setNowPlaying(new Map([...byStation].map(([slug, np]) => [slug, statusLine(np)])));
+  } catch {
+    // Unreachable — keep the last text.
+  }
+}
+
 async function init(): Promise<void> {
   try {
     stations = await fetchStations();
@@ -108,6 +119,8 @@ async function init(): Promise<void> {
   ui.renderStations(stations);
   void pollHealth();
   setInterval(() => void pollHealth(), HEALTH_POLL_MS);
+  void pollNowPlaying();
+  setInterval(() => void pollNowPlaying(), NOW_PLAYING_POLL_MS);
 }
 
 void init();

@@ -73,6 +73,12 @@ Routes (`streaming-server/src/app.ts`):
   `*` is the site as a whole. Events with `"kind":"quality"` are quality
   changes from the poller above (with `cause` and the two ratios). Use it to see what happened during an alert:
   `curl 'https://stream.atthebunga.com/history?since=2026-10-03T12:00:00Z'`
+- `GET /now-playing[/<slug>]` — status text per station (`state`
+  live / quiet / off-air / down / unknown, `headline`, `detail`, `resumesAt`),
+  built from the 20s status snapshot and the latest quality sample. The Cast
+  receiver (`cast-skin.html`) and the web player poll it every 10s (#26). A
+  station's `quietHours` (UTC) lets a silent source say when it usually
+  resumes; Golden Temple's nightly break is about 16:00–21:15 UTC.
 - `GET /stations` — station metadata plus `hlsPath` / `streamPath` for the web player
 - `HEAD /:station` — returns `Content-Type: application/x-mpegURL` immediately
 - `GET /:station` — serves the rewritten M3U8 playlist (segment URLs rewritten to absolute HTTPS)
