@@ -1,11 +1,12 @@
-FROM node:18-slim AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 COPY package*.json tsconfig.json ./
 RUN npm ci
 COPY src/ ./src/
 RUN npm run build
 
-FROM node:18-slim
+FROM node:22-slim
+LABEL org.opencontainers.image.source=https://github.com/thehimmat/google-home-radiocaster
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package*.json ./

@@ -9,12 +9,20 @@ function fakeReq(headers: Record<string, string>, remoteAddress?: string): Reque
 }
 
 describe('describeClient', () => {
-  it('prefers the Fly-Client-IP header over the socket address', () => {
+  it('prefers Cloudflare\'s CF-Connecting-IP over every other source', () => {
+    const req = fakeReq(
+      { 'cf-connecting-ip': '198.51.100.9', 'fly-client-ip': '104.16.0.1', 'user-agent': 'CrKey/1.56' },
+      '172.16.0.2',
+    );
+    expect(describeClient(req)).toBe('ip=198.51.100.9 ua="CrKey/1.56"');
+  });
+
+  it('uses the Fly-Client-IP header when Cloudflare\'s is absent', () => {
     const req = fakeReq({ 'fly-client-ip': '203.0.113.7', 'user-agent': 'CrKey/1.56' }, '172.16.0.2');
     expect(describeClient(req)).toBe('ip=203.0.113.7 ua="CrKey/1.56"');
   });
 
-  it('falls back to the socket address when not behind Fly', () => {
+  it('falls back to the socket address with no proxy header', () => {
     const req = fakeReq({ 'user-agent': 'curl/8.0' }, '127.0.0.1');
     expect(describeClient(req)).toBe('ip=127.0.0.1 ua="curl/8.0"');
   });

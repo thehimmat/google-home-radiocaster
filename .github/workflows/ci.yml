@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  caster:
+    name: Caster (root)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  streaming-server:
+    name: Streaming server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: streaming-server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: streaming-server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  selfhost:
+    name: Oracle VM config
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: streaming-server/selfhost
+    steps:
+      - uses: actions/checkout@v5
+      - name: Shell scripts
+        run: shellcheck scripts/*.sh
+      - name: Compose file
+        run: SITE_ADDRESS=example.sslip.io docker compose config -q
+      - name: Caddy config, with and without the Cloudflare site
+        run: |
+          mkdir -p sites-enabled certs
+          validate() {
+            docker run --rm -e SITE_ADDRESS=example.sslip.io \
+              -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/sites-enabled:/etc/caddy/sites:ro" \
+              -v "$PWD/certs:/certs:ro" caddy:2.10 caddy validate --config /etc/caddy/Caddyfile
+          }
+          validate
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout certs/origin.key -out certs/origin.pem \
+            -days 1 -subj /CN=stream.atthebunga.com 2>/dev/null
+          cp certs/origin.pem certs/cloudflare-origin-pull-ca.pem
+          cp sites/stream.caddy sites-enabled/
+          validate

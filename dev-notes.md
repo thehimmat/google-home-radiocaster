@@ -15,7 +15,7 @@ Mac (cast-now / scheduler, or the launchd agent)
   ↓  sends LOAD with stream URL
 Nest Hub (port 8009)
   ↓  GET /<station>/stream — one long-lived ADTS AAC response
-stream.atthebunga.com (Fly.io, Dockerised, region sjc)
+stream.atthebunga.com (Fly.io, Dockerised, region sjc; moving to Oracle, below)
   ↓  FFmpeg transcodes; HLS segments also written to /data/hls/ for the web player
 Upstream source (e.g. live.sgpc.net:8443, radio.sikhnet.com)
 ```
@@ -38,6 +38,12 @@ the simpler raw stream and HLS stayed for the web player and the R2 archiver.
 
 ## Streaming server (streaming-server/)
 
+**Moving to Oracle (Nov 2026).** The same image runs on an Always Free Oracle VM next to
+gurmukhi-kosh's, behind Caddy and Cloudflare. Setup, cutover and rollback:
+`streaming-server/selfhost/README.md`. `oracle-deploy.yml` builds the arm64 image on every push to
+`main`; Fly keeps running and deploying until the cutover has been stable for a week. The Fly notes
+below apply until then.
+
 Deployed on Fly.io (app `atthebunga-radio`, config in `streaming-server/fly.toml`)
 via the Dockerfile in `streaming-server/`. FFmpeg is installed in the container.
 One HLS FFmpeg process runs per station at boot, writing segments to
@@ -59,6 +65,7 @@ Custom domain: `stream.atthebunga.com` (CNAME → the Fly app, DNS via Vercel;
 cert issued with `flyctl certs add`).
 
 Routes (`streaming-server/src/app.ts`):
+- Client IPs in the logs come from `CF-Connecting-IP` (Cloudflare), then `Fly-Client-IP`.
 - `GET /health` — per-station `live` / `source-down` / `error` plus site
   `ok` / `degraded` / `down`; returns 503 (pages UptimeRobot) only when no
   station is live. One dead station is labelled on the site, never paged.
@@ -113,7 +120,7 @@ lazy one for `/stream` while anyone is casting. A station whose source is quiet
 runs no FFmpeg: `StationSupervisor` probes it (one short HTTP GET, backing off
 to every 5 minutes) and the site shows it as "Off air". After 7 days with no
 audio it is hidden from `/stations` until its source comes back. At most
-`MAX_ENCODERS` (3) encodes run at once; Golden Temple always gets a slot.
+`MAX_ENCODERS` (env var, default 3) encodes run at once; Golden Temple always gets a slot.
 At 4, the shared CPU couldn't keep every pipeline at real time (choppy audio).
 Watch `flyctl status` memory after adding stations; the VM was raised to 1 GB
 when the count went from two to seven.

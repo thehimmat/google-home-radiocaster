@@ -1,0 +1,46 @@
+# The streaming server on the Oracle VM (README.md). Run Compose from this folder: it reads .env here.
+services:
+  radio:
+    image: ghcr.io/thehimmat/google-home-radiocaster/streaming-server:${RADIO_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "3001"
+      HLS_ROOT: /data/hls
+    ports:
+      # Host-side only: smoke.sh and debugging. The public way in is the gateway.
+      - "127.0.0.1:3001:3001"
+    volumes:
+      # Segments and status history survive restarts and deploys (Fly's hls_data volume did the same).
+      - ${HLS_DIR:-/srv/radio/hls}:/data/hls
+    # /stations, not /health: /health is 503 whenever no source is live, which isn't a reason to
+    # fail a deploy or restart the server.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/stations').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 10s
+
+  gateway:
+    image: caddy:2.10
+    restart: unless-stopped
+    depends_on:
+      radio:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_HTTP:-80}:80"
+      - "${GATEWAY_HTTPS:-443}:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites-enabled:/etc/caddy/sites:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

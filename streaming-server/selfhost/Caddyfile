@@ -1,0 +1,30 @@
+# Two ways in, both to the same server:
+#   SITE_ADDRESS (e.g. 129-80-1-2.sslip.io): Let's Encrypt, no Cloudflare. For testing before
+#     cutover and as a way around Cloudflare if it's ever the problem.
+#   stream.atthebunga.com (sites/stream.caddy, enabled once the Cloudflare certificates are in
+#     certs/): what the Cast devices and the website use.
+{
+	servers {
+		# Cast devices hold /stream open for hours.
+		timeouts {
+			read_body 30s
+			idle 5m
+		}
+	}
+}
+
+(radio) {
+	reverse_proxy radio:3001 {
+		# Pass audio bytes on as they arrive instead of buffering them.
+		flush_interval -1
+	}
+}
+
+{$SITE_ADDRESS} {
+	# Nothing is in front of this name, so any CF-Connecting-IP header here is the caller's own
+	# invention. Replace it with the real address, which is where the server's logs read it from.
+	request_header Cf-Connecting-Ip {remote_host}
+	import radio
+}
+
+import /etc/caddy/sites/*.caddy
