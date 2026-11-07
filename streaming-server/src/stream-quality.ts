@@ -19,8 +19,11 @@ import { upstreamInputArgs } from './ffmpeg-args';
  */
 export type SourceQuality = 'down' | 'silent' | 'choppy' | 'healthy';
 
-/** Where a problem most likely lives: the broadcaster's source or our pipeline. */
-export type Cause = 'source' | 'us' | 'none';
+/**
+ * Where a problem most likely lives: the broadcaster's source, our pipeline, or delivery (between
+ * our server and a listener: Caddy, Cloudflare, the network), checked in that order.
+ */
+export type Cause = 'source' | 'us' | 'delivery' | 'none';
 
 export interface SourceSample {
   /** Whether FFmpeg decoded any audio from the source. */
@@ -64,12 +67,18 @@ export function classifySample(s: SourceSample): SourceQuality {
 
 /**
  * pipelineRatio is how fast our own HLS pipeline produced audio for the same
- * station (null if unknown). An unhealthy source explains whatever we output;
- * a healthy source with a slow pipeline points at us.
+ * station (null if unknown). listener is how our public /stream sounded over
+ * the same window (null if not checked). The earliest unhealthy link is
+ * blamed, since it explains everything after it.
  */
-export function attributeCause(quality: SourceQuality, pipelineRatio: number | null): Cause {
+export function attributeCause(
+  quality: SourceQuality,
+  pipelineRatio: number | null,
+  listener: SourceQuality | null = null,
+): Cause {
   if (quality !== 'healthy') return 'source';
   if (pipelineRatio !== null && pipelineRatio < MIN_REALTIME_RATIO) return 'us';
+  if (listener !== null && listener !== 'healthy') return 'delivery';
   return 'none';
 }
 

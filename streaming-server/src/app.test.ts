@@ -129,7 +129,7 @@ describe('GET /health', () => {
 
   it('includes the latest audio-quality report per station when a poller is wired in', async () => {
     const report: QualityReport = {
-      quality: 'choppy', cause: 'source', sourceRatio: 0.55, pipelineRatio: 0.6, checkedAt: '2026-10-03T22:00:00.000Z',
+      quality: 'choppy', cause: 'source', sourceRatio: 0.55, pipelineRatio: 0.6, listener: null, listenerRatio: null, checkedAt: '2026-10-03T22:00:00.000Z',
     };
     const qualityApp = createApp(STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, {
       latest: (name) => (name === 'test-station' ? report : undefined),

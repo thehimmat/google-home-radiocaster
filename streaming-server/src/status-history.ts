@@ -23,6 +23,9 @@ export interface StatusEvent {
   cause?: string;
   sourceRatio?: number | null;
   pipelineRatio?: number | null;
+  /** Quality events with the listener check on: how our public stream sounded. */
+  listener?: string | null;
+  listenerRatio?: number | null;
 }
 
 export interface HistoryQuery {

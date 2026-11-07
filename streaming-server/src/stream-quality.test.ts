@@ -55,6 +55,21 @@ describe('attributeCause', () => {
     expect(attributeCause('healthy', 0.6)).toBe('us');
   });
 
+  it('blames delivery when source and pipeline are fine but a listener hears gaps', () => {
+    expect(attributeCause('healthy', 1, 'choppy')).toBe('delivery');
+    expect(attributeCause('healthy', null, 'down')).toBe('delivery');
+  });
+
+  it('blames the earlier link first: the source, then our pipeline, then delivery', () => {
+    expect(attributeCause('choppy', 1, 'choppy')).toBe('source');
+    expect(attributeCause('healthy', 0.6, 'choppy')).toBe('us');
+  });
+
+  it('is none when the listener hears it fine, or was not checked', () => {
+    expect(attributeCause('healthy', 1, 'healthy')).toBe('none');
+    expect(attributeCause('healthy', 1, null)).toBe('none');
+  });
+
   it('is none when the source is healthy and our pipeline keeps up (or is unknown)', () => {
     expect(attributeCause('healthy', 1)).toBe('none');
     expect(attributeCause('healthy', null)).toBe('none');

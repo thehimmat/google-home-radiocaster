@@ -268,6 +268,11 @@ const QUALITY_INTERVAL_MS = 5 * 60_000;
 // connect, so skip the first 15s and measure the remaining 25s.
 const QUALITY_SAMPLE_MS = 40_000;
 const QUALITY_WARMUP_MS = 15_000;
+// Optional listener check: also sample our own public /stream (e.g. https://stream.atthebunga.com,
+// through Cloudflare like a Cast device) over the same window, so gaps added between us and a
+// listener show up as cause "delivery". Each check holds a /stream encode open for about 100 s, so
+// leave it off on a CPU-starved host.
+const LISTENER_CHECK_URL = process.env.LISTENER_CHECK_URL?.replace(/\/+$/, '') || null;
 const qualityPoller = new QualityPoller({
   stations: STATIONS,
   sample: (url) => sampleSource(url, { spawnFn: spawn, sampleMs: QUALITY_SAMPLE_MS, warmupMs: QUALITY_WARMUP_MS }),
@@ -275,6 +280,7 @@ const qualityPoller = new QualityPoller({
   recorder: statusHistory,
   segmentSeconds: HLS_SEGMENT_SECONDS,
   isActive: (station) => airState(station) === 'live',
+  listenerUrl: LISTENER_CHECK_URL ? (station) => `${LISTENER_CHECK_URL}/${station}/stream` : undefined,
 });
 qualityPoller.start(QUALITY_INTERVAL_MS);
 

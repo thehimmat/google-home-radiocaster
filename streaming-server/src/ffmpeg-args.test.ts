@@ -20,6 +20,11 @@ describe('ffmpeg-args', () => {
     expect(args[args.length - 1]).toBe(URL);
   });
 
+  it('passes -tls_verify only for https sources (newer FFmpeg rejects it on plain http)', () => {
+    expect(upstreamInputArgs('http://example.com/live')).not.toContain('-tls_verify');
+    expect(upstreamInputArgs('https://example.com/live').join(' ')).toContain('-tls_verify 0');
+  });
+
   it('encodes to plain AAC (Cast rejects audio/aacp)', () => {
     expect(aacEncodeArgs().join(' ')).toBe('-c:a aac -b:a 128k -ac 2');
   });
