@@ -49,7 +49,10 @@ jobs:
       - name: Shell scripts
         run: shellcheck scripts/*.sh
       - name: Compose file
-        run: SITE_ADDRESS=example.sslip.io docker compose config -q
+        # The VM's .env holds real settings; an empty one stands in for it here.
+        run: |
+          touch .env
+          SITE_ADDRESS=example.sslip.io docker compose config -q
       - name: Caddy config, with and without the Cloudflare site
         run: |
           mkdir -p sites-enabled certs
