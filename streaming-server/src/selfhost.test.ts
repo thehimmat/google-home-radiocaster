@@ -2,10 +2,9 @@ import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
-import * as os from 'os';
 import * as path from 'path';
 
-// The Oracle VM's scripts (selfhost/) are plain sh so they run on a fresh Ubuntu box with nothing
+// The scripts for kosh-db (selfhost/) are plain sh so they run on a fresh Ubuntu box with nothing
 // but Docker. These run them on any POSIX host: deploy.sh in dry-run mode, smoke.sh against a
 // stand-in for the streaming server.
 
@@ -23,20 +22,8 @@ function sh(script: string, args: string[], env: NodeJS.ProcessEnv = {}, cwd = s
 }
 
 describe('deploy.sh', () => {
-  let tmp: string;
-
-  beforeEach(() => {
-    // A copy of selfhost/, so enabling the Cloudflare site doesn't touch the repo.
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'radio-selfhost-'));
-    fs.cpSync(selfhost, tmp, { recursive: true });
-    fs.rmSync(path.join(tmp, 'sites-enabled'), { recursive: true, force: true });
-    fs.rmSync(path.join(tmp, 'certs'), { recursive: true, force: true });
-  });
-
-  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
-
   const deploy = (target: string | undefined, env: NodeJS.ProcessEnv = {}) =>
-    spawnSync('/bin/sh', [path.join(tmp, 'scripts/deploy.sh'), ...(target ? [target] : [])], {
+    spawnSync('/bin/sh', [path.join(selfhost, 'scripts/deploy.sh'), ...(target ? [target] : [])], {
       env: { ...process.env, RADIO_DEPLOY_DRY_RUN: '1', ...env },
       encoding: 'utf8',
     });
@@ -47,19 +34,23 @@ describe('deploy.sh', () => {
     expect(deploy('radio').stdout).toContain('deploy radio');
     expect(deploy(undefined, { SSH_ORIGINAL_COMMAND: 'config' }).stdout).toContain('deploy config');
   });
+});
 
-  it('serves stream.atthebunga.com only once the Cloudflare certificates are in place', () => {
-    const enabled = path.join(tmp, 'sites-enabled/stream.caddy');
-    expect(deploy('config').status).toBe(0);
-    expect(fs.existsSync(path.join(tmp, 'sites-enabled'))).toBe(true);
-    expect(fs.existsSync(enabled)).toBe(false);
+describe('docker-compose.yml', () => {
+  const compose = fs.readFileSync(path.join(selfhost, 'docker-compose.yml'), 'utf8');
 
-    fs.mkdirSync(path.join(tmp, 'certs'));
-    for (const f of ['origin.pem', 'origin.key', 'cloudflare-origin-pull-ca.pem']) {
-      fs.writeFileSync(path.join(tmp, 'certs', f), 'x');
-    }
-    expect(deploy('config').status).toBe(0);
-    expect(fs.readFileSync(enabled, 'utf8')).toContain('stream.atthebunga.com');
+  it("names its project, so Compose doesn't merge it with kosh's stack in a folder also called selfhost", () => {
+    expect(compose).toMatch(/^name: radio$/m);
+  });
+
+  it("leaves ports 80 and 443 to kosh's gateway and joins only the network they share", () => {
+    expect(compose).not.toMatch(/^ {2}gateway:/m);
+    expect(compose).toMatch(/^networks:\n(?: *#.*\n)* {2}radio-edge:\n {4}external: true$/m);
+    expect(compose).toMatch(/networks: \[radio-edge\]/);
+  });
+
+  it('keeps the host port on localhost only', () => {
+    expect(compose).toContain('"127.0.0.1:3001:3001"');
   });
 });
 

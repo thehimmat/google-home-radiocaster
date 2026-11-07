@@ -1,14 +1,24 @@
-# The streaming server on the Oracle VM (README.md). Run Compose from this folder: it reads .env here.
+# The streaming server on kosh-db (README.md). Run Compose from this folder: it reads .env here.
+# The name matters: this folder is called selfhost, like kosh's, and Compose would otherwise treat
+# both as one project.
+name: radio
+
 services:
   radio:
     image: ghcr.io/thehimmat/google-home-radiocaster/streaming-server:${RADIO_TAG:-latest}
     restart: unless-stopped
+    # The VM is shared with kosh's database and apps.
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
     env_file: .env
+    networks: [radio-edge]
     environment:
       PORT: "3001"
       HLS_ROOT: /data/hls
     ports:
-      # Host-side only: smoke.sh and debugging. The public way in is the gateway.
+      # Host-side only: smoke.sh and debugging. The public way in is kosh's gateway.
       - "127.0.0.1:3001:3001"
     volumes:
       # Segments and status history survive restarts and deploys (Fly's hls_data volume did the same).
@@ -23,24 +33,7 @@ services:
       retries: 3
     stop_grace_period: 10s
 
-  gateway:
-    image: caddy:2.10
-    restart: unless-stopped
-    depends_on:
-      radio:
-        condition: service_healthy
-    ports:
-      - "${GATEWAY_HTTP:-80}:80"
-      - "${GATEWAY_HTTPS:-443}:443"
-    environment:
-      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./sites-enabled:/etc/caddy/sites:ro
-      - ./certs:/certs:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  # Made by kosh-db's stack (gurmukhi-kosh, selfhost/docker-compose.apps.yml). Its gateway is the way in.
+  radio-edge:
+    external: true

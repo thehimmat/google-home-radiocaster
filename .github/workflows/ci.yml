@@ -52,18 +52,4 @@ jobs:
         # The VM's .env holds real settings; an empty one stands in for it here.
         run: |
           touch .env
-          SITE_ADDRESS=example.sslip.io docker compose config -q
-      - name: Caddy config, with and without the Cloudflare site
-        run: |
-          mkdir -p sites-enabled certs
-          validate() {
-            docker run --rm -e SITE_ADDRESS=example.sslip.io \
-              -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/sites-enabled:/etc/caddy/sites:ro" \
-              -v "$PWD/certs:/certs:ro" caddy:2.10 caddy validate --config /etc/caddy/Caddyfile
-          }
-          validate
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout certs/origin.key -out certs/origin.pem \
-            -days 1 -subj /CN=stream.atthebunga.com 2>/dev/null
-          cp certs/origin.pem certs/cloudflare-origin-pull-ca.pem
-          cp sites/stream.caddy sites-enabled/
-          validate
+          docker compose config -q

@@ -1,60 +1,58 @@
 # Streaming server on Oracle
 
-The streaming server's home after Fly.io: an Always Free Oracle VM in the same account as `kosh-db`
-(gurmukhi-kosh's `selfhost/`, which this copies). Two containers: `radio` (the image built from
-`streaming-server/`) and Caddy in front of it.
+The streaming server's home after Fly.io: one container, `radio` (the image built from
+`streaming-server/`), running on `kosh-db` next to gurmukhi-kosh's stack (its `selfhost/`). A second
+VM would go over Always Free's 200 GB of block storage, which kosh-db's disk uses in full, so this
+shares that VM and its Caddy.
 
-- **Server:** Oracle VM `radio` (Ashburn, Ampere A1, 2 OCPU / 12 GB, Ubuntu 24.04). Its IP is
-  `<ip>` below, and `<ip-dashes>` is the same with dashes (`129-80-1-2`).
+- **Server:** Oracle VM `kosh-db` (Ashburn, Ampere A1, 4 OCPU / 24 GB, Ubuntu 24.04), `141.148.39.45`.
 - **Code and settings on the server:** `/opt/radio` (main). Settings in
   `/opt/radio/streaming-server/selfhost/.env` (mode 600, gitignored). HLS segments and status
   history in `/srv/radio/hls`.
+- **Routing:** kosh's gateway owns ports 80 and 443 and reaches `radio:3001` over the `radio-edge`
+  Docker network, which is all the two stacks share. The site is gurmukhi-kosh's
+  `selfhost/sites/stream.caddy`, so a routing change is a PR there.
 - **Two ways in:**
-  - `https://<ip-dashes>.sslip.io`: Let's Encrypt, not through Cloudflare. For testing before cutover,
-    and to rule Cloudflare in or out when chasing a problem.
+  - `https://radio.141-148-39-45.sslip.io`: Let's Encrypt, not through Cloudflare. For testing before
+    cutover, and to rule Cloudflare in or out when chasing a problem.
   - `https://stream.atthebunga.com`: through Cloudflare, with the same Origin CA certificate and
-    Authenticated Origin Pulls as kosh-db, so only Cloudflare reaches it on that name.
+    Authenticated Origin Pulls as kosh's sites, so only Cloudflare reaches it on that name.
 
 | File | What it does |
 |---|---|
-| `docker-compose.yml` | `radio` (port 3001, on localhost only) and `gateway` (Caddy, 80/443) |
-| `Caddyfile` | The sslip.io site; imports `sites-enabled/` |
-| `sites/stream.caddy` | stream.atthebunga.com. `deploy.sh` enables it once the certificates are in `certs/` |
-| `scripts/server-setup.sh` | One-time (re-runnable) VM setup: updates, firewall, Docker, swap, `.env`, stack |
-| `scripts/deploy.sh` | Update to main, pull the image, start, reload Caddy, smoke test. The deploy key runs nothing else |
+| `docker-compose.yml` | `radio` (port 3001, on localhost only), project name `radio` |
+| `scripts/server-setup.sh` | One-time (re-runnable) setup: code, HLS folder, `.env`, stack |
+| `scripts/deploy.sh` | Update to main, pull the image, start, smoke test. The deploy key runs nothing else |
 | `scripts/smoke.sh` | Checks a server as a listener would: `/stations` lists the station and `/stream` carries AAC frames |
 
-`src/selfhost.test.ts` tests `deploy.sh` and `smoke.sh`. CI also runs shellcheck and validates the
-Compose and Caddy files.
+`src/selfhost.test.ts` tests `deploy.sh`, `smoke.sh` and the compose file. CI also runs shellcheck
+and validates the Compose file.
 
 ## Setup
 
 One command per step, from your Mac.
 
-**1. Create the VM** (Oracle console → Compute → Instances → Create instance):
-- Name `radio`. Image: Canonical Ubuntu 24.04 (the aarch64 build). Shape: VM.Standard.A1.Flex, 2 OCPU,
-  12 GB.
-- Networking: kosh-db's VCN and public subnet, with a public IPv4 address. That subnet's security
-  list already allows 80 and 443. In a different subnet, add ingress rules for TCP 80 and 443 from
-  0.0.0.0/0.
-- SSH key: the same public key as kosh-db.
-- If it says **out of capacity**, retry later or try another availability domain. The fallback is
-  resizing kosh-db to 4 OCPU / 24 GB and running this stack there too.
+**1. Resize kosh-db** (Oracle console → Compute → Instances → kosh-db → Edit → shape): 4 OCPU, 24 GB,
+which is all of Always Free's A1 allowance. **This reboots the VM**, so kosh's sites are down for a
+few minutes.
 
-**2. Set it up** (installs Docker, opens 80/443, starts the stack; about 5 minutes):
+**2. Give the gateway the new site:** merge the gurmukhi-kosh PR that adds `sites/stream.caddy` and the
+`radio-edge` network. Its deploy applies them, recreating the gateway (a few seconds).
+
+**3. Set it up** (clones the code, starts the stack):
 
 ```sh
-ssh ubuntu@<ip> 'curl -fsSL https://raw.githubusercontent.com/thehimmat/google-home-radiocaster/main/streaming-server/selfhost/scripts/server-setup.sh | bash -s -- <ip-dashes>.sslip.io'
+ssh ubuntu@141.148.39.45 'curl -fsSL https://raw.githubusercontent.com/thehimmat/google-home-radiocaster/main/streaming-server/selfhost/scripts/server-setup.sh | bash'
 ```
 
 It ends with `smoke.sh`'s three lines. If the image pull is `denied`, the GHCR package is private:
 GitHub → your profile → Packages → `google-home-radiocaster/streaming-server` → Package settings →
 Change visibility → Public.
 
-**3. Check it from outside**, then cast to the Nest Hub through it:
+**4. Check it from outside**, then cast to the Nest Hub through it:
 
 ```sh
-sh streaming-server/selfhost/scripts/smoke.sh https://<ip-dashes>.sslip.io
+sh streaming-server/selfhost/scripts/smoke.sh https://radio.141-148-39-45.sslip.io
 ```
 
 In `src/config.local.ts`, point Golden Temple at the VM for this machine only, cast, and listen for a
@@ -62,18 +60,8 @@ while. Remove the override afterwards.
 
 ```ts
 export const stations: LocalConfig['stations'] = {
-  "Golden Temple": { url: "https://<ip-dashes>.sslip.io/golden-temple/stream", contentType: "audio/aac" },
+  "Golden Temple": { url: "https://radio.141-148-39-45.sslip.io/golden-temple/stream", contentType: "audio/aac" },
 };
-```
-
-**4. Cloudflare certificates**, copied from kosh-db, then enable stream.atthebunga.com:
-
-```sh
-ssh ubuntu@141.148.39.45 'tar -C /opt/kosh/selfhost/certs -c origin.pem origin.key cloudflare-origin-pull-ca.pem' | ssh ubuntu@<ip> 'tar -C /opt/radio/streaming-server/selfhost/certs -x'
-```
-
-```sh
-ssh ubuntu@<ip> 'sh /opt/radio/streaming-server/selfhost/scripts/deploy.sh config'
 ```
 
 **5. R2 archiving** (optional; Fly's secrets can't be read back). Make an R2 API token (Cloudflare →
@@ -81,7 +69,7 @@ R2 → Manage API tokens, Object Read & Write, the radio bucket only), then ente
 prompted:
 
 ```sh
-ssh -t ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && for k in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do read -rsp "$k: " v && echo && sed -i "/^$k=/d" .env && echo "$k=$v" >> .env; done && docker compose up -d --wait'
+ssh -t ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && for k in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do read -rsp "$k: " v && echo && sed -i "/^$k=/d" .env && echo "$k=$v" >> .env; done && docker compose up -d --wait'
 ```
 
 **6. Deploys from GitHub.** A key that can run `deploy.sh` and nothing else:
@@ -91,20 +79,20 @@ ssh-keygen -t ed25519 -N "" -C github-deploy-radio -f ~/.ssh/radio-deploy
 ```
 
 ```sh
-echo "restrict,command=\"sh /opt/radio/streaming-server/selfhost/scripts/deploy.sh\" $(cat ~/.ssh/radio-deploy.pub)" | ssh ubuntu@<ip> 'cat >> ~/.ssh/authorized_keys'
+echo "restrict,command=\"sh /opt/radio/streaming-server/selfhost/scripts/deploy.sh\" $(cat ~/.ssh/radio-deploy.pub)" | ssh ubuntu@141.148.39.45 'cat >> ~/.ssh/authorized_keys'
 ```
 
 Then in this repo, Settings → Secrets and variables → Actions:
-- Variable `DEPLOY_HOST` = `ubuntu@<ip>`
+- Variable `DEPLOY_HOST` = `ubuntu@141.148.39.45`
 - Secret `DEPLOY_SSH_KEY`: `pbcopy < ~/.ssh/radio-deploy`
-- Secret `DEPLOY_KNOWN_HOSTS`: `ssh-keygen -F <ip> | grep -v '^#' | pbcopy`
+- Secret `DEPLOY_KNOWN_HOSTS`: `ssh-keygen -F 141.148.39.45 | grep -v '^#' | pbcopy`
 
 Run Actions → "Deploy streaming server to Oracle" → Run workflow once to check it.
 
 ## Cutover
 
 1. **DNS:** Cloudflare → atthebunga.com → DNS → the `stream` record (a CNAME to Fly today). Change
-   it to an **A record**, `<ip>`, still **proxied**. Takes effect in seconds.
+   it to an **A record**, `141.148.39.45`, still **proxied**. Takes effect in seconds.
 2. **Check:** the response should come from Caddy, not Fly:
    ```sh
    curl -sI https://stream.atthebunga.com/health | grep -iE '^(HTTP|fly-request-id)'
@@ -114,14 +102,14 @@ Run Actions → "Deploy streaming server to Oracle" → Run workflow once to che
 3. **Turn on the listener check**, so `/health` and `/history` say whether gaps come from the source,
    from us, or from delivery (Caddy, Cloudflare, the network):
    ```sh
-   ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && sed -i "/^LISTENER_CHECK_URL=/d" .env && echo LISTENER_CHECK_URL=https://stream.atthebunga.com >> .env && docker compose up -d --wait'
+   ssh ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && sed -i "/^LISTENER_CHECK_URL=/d" .env && echo LISTENER_CHECK_URL=https://stream.atthebunga.com >> .env && docker compose up -d --wait'
    ```
-   To tell Cloudflare apart from the rest, point it at `https://<ip-dashes>.sslip.io` for a few days
+   To tell Cloudflare apart from the rest, point it at `https://radio.141-148-39-45.sslip.io` for a few days
    instead and compare.
 4. **Status history (optional):** the 30-day log lives on Fly's volume. To keep it, before scaling
    Fly down:
    ```sh
-   cd streaming-server && flyctl ssh sftp get /data/hls/_status-history.jsonl /tmp/history.jsonl && scp /tmp/history.jsonl ubuntu@<ip>:/srv/radio/hls/_status-history.jsonl && ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && docker compose restart radio'
+   cd streaming-server && flyctl ssh sftp get /data/hls/_status-history.jsonl /tmp/history.jsonl && scp /tmp/history.jsonl ubuntu@141.148.39.45:/srv/radio/hls/_status-history.jsonl && ssh ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && docker compose restart radio'
    ```
 
 **Rollback:** set the `stream` record back to a CNAME to `atthebunga-radio.fly.dev`, proxied. Fly
@@ -135,20 +123,21 @@ atthebunga-radio`.
 
 ```sh
 # Logs
-ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && docker compose logs --tail 100 radio'
+ssh ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && docker compose logs --tail 100 radio'
 
 # CPU and memory (watch this when raising MAX_ENCODERS)
-ssh ubuntu@<ip> 'docker stats --no-stream'
+ssh ubuntu@141.148.39.45 'docker stats --no-stream'
 
 # More simultaneous encodes: edit MAX_ENCODERS in .env, then
-ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && docker compose up -d --wait'
+ssh ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && docker compose up -d --wait'
 
 # Roll back to an earlier image (commit SHAs are the tags): RADIO_TAG=<sha> in .env, then up -d as
 # above. Remove the line to follow latest again.
 ```
 
-Security updates install daily, and a kernel update reboots the VM at 04:45 UTC (kosh-db's is
-04:30). Listeners hear about a minute of silence.
+Security updates install daily, and a kernel update reboots the VM at 04:30 UTC, for kosh and the radio
+together. Listeners hear about a minute of silence. A deploy of kosh that recreates its gateway also
+drops listeners for a moment; a plain kosh or search deploy only reloads Caddy.
 
 **Oracle's idle reclaim:** Oracle stops Always Free VMs that look idle for 7 days (low CPU, network
 and memory). Continuous encoding keeps this one busy, but see gurmukhi-kosh's
