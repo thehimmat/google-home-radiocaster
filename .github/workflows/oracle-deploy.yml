@@ -1,0 +1,78 @@
+name: Deploy streaming server to Oracle
+
+# On every push to main that touches the streaming server: test, build its arm64 image and push it
+# to GHCR (tags latest and the commit SHA), then deploy it on the Oracle VM
+# (streaming-server/selfhost/README.md). The image always builds; the deploy step runs once the
+# repository variable DEPLOY_HOST and the secrets DEPLOY_SSH_KEY and DEPLOY_KNOWN_HOSTS are set.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'streaming-server/**'
+      - '.github/workflows/oracle-deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: oracle-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: streaming-server
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: streaming-server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  image:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: streaming-server
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/streaming-server:latest
+            ghcr.io/${{ github.repository }}/streaming-server:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    if: ${{ vars.DEPLOY_HOST != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Deploy on the VM
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          (umask 077 && printf '%s\n' "$KEY" > ~/.ssh/id_ed25519)
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The key's forced command is deploy.sh, which reads the target from this.
+          ssh -o BatchMode=yes "$HOST" radio

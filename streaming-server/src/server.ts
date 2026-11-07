@@ -6,6 +6,7 @@ import { archiverEnvFromProcess, createR2Uploader, StationArchiver } from './arc
 import { StationBroadcaster } from './broadcaster';
 import { cleanupHlsRoot, clearStationSegments } from './hls-cleanup';
 import { buildHlsArgs, HLS_SEGMENT_SECONDS } from './ffmpeg-args';
+import { maxEncodersFromEnv } from './encoder-limit';
 import { httpProbe, UpstreamMonitor } from './upstream-monitor';
 import { StatusHistory } from './status-history';
 import { StatusTracker } from './status-tracker';
@@ -59,11 +60,8 @@ const STATIONS: StationMap = {
   },
 };
 
-// Most HLS encodes allowed at once on the shared CPU. Golden Temple always
-// gets one (see EncoderSlots), so newer stations can't lock it out. At 4,
-// every live pipeline ran below real time (pipelineRatio 0.70-0.88 on
-// 2026-10-18), which listeners hear as choppy audio.
-const MAX_ENCODERS = 3;
+// Most HLS encodes at once; see encoder-limit.ts.
+const MAX_ENCODERS = maxEncodersFromEnv(process.env.MAX_ENCODERS);
 const PRIORITY_STATIONS = ['golden-temple'];
 
 // ---------------------------------------------------------------------------

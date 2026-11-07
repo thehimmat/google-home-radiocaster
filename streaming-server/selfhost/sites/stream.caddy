@@ -1,0 +1,13 @@
+# stream.atthebunga.com, proxied by Cloudflare in Full (strict) mode. The certificate is the
+# Cloudflare Origin CA one already used on kosh-db (*.atthebunga.com), and every connection must
+# present Cloudflare's client certificate (Authenticated Origin Pulls), so CF-Connecting-IP can be
+# trusted. deploy.sh copies this into sites-enabled/ once those files are in certs/.
+stream.atthebunga.com {
+	tls /certs/origin.pem /certs/origin.key {
+		client_auth {
+			mode require_and_verify
+			trusted_ca_cert_file /certs/cloudflare-origin-pull-ca.pem
+		}
+	}
+	import radio
+}
