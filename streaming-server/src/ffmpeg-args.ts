@@ -15,7 +15,8 @@ export const HLS_SEGMENT_SECONDS = 6;
  * Input-side flags: keep the upstream connection alive through drops, present
  * a media-player user-agent (some Shoutcast servers send an HTML page
  * otherwise), and skip TLS verification (SGPC's live.sgpc.net:8443 uses a
- * self-signed cert).
+ * self-signed cert). -tls_verify only exists for https; FFmpeg 7+ fails with
+ * "Option not found" when it's given for a plain http URL.
  */
 export function upstreamInputArgs(upstreamUrl: string): string[] {
   return [
@@ -24,7 +25,7 @@ export function upstreamInputArgs(upstreamUrl: string): string[] {
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '30',
     '-user_agent', 'WinampMPEG/5.0',
-    '-tls_verify', '0',
+    ...(upstreamUrl.startsWith('https:') ? ['-tls_verify', '0'] : []),
     '-i', upstreamUrl,
   ];
 }

@@ -111,7 +111,14 @@ Run Actions → "Deploy streaming server to Oracle" → Run workflow once to che
    ```
    Expect `HTTP/2 200` and no `fly-request-id`. Then `sh streaming-server/selfhost/scripts/smoke.sh https://stream.atthebunga.com`,
    and cast normally. UptimeRobot needs no change.
-3. **Status history (optional):** the 30-day log lives on Fly's volume. To keep it, before scaling
+3. **Turn on the listener check**, so `/health` and `/history` say whether gaps come from the source,
+   from us, or from delivery (Caddy, Cloudflare, the network):
+   ```sh
+   ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && sed -i "/^LISTENER_CHECK_URL=/d" .env && echo LISTENER_CHECK_URL=https://stream.atthebunga.com >> .env && docker compose up -d --wait'
+   ```
+   To tell Cloudflare apart from the rest, point it at `https://<ip-dashes>.sslip.io` for a few days
+   instead and compare.
+4. **Status history (optional):** the 30-day log lives on Fly's volume. To keep it, before scaling
    Fly down:
    ```sh
    cd streaming-server && flyctl ssh sftp get /data/hls/_status-history.jsonl /tmp/history.jsonl && scp /tmp/history.jsonl ubuntu@<ip>:/srv/radio/hls/_status-history.jsonl && ssh ubuntu@<ip> 'cd /opt/radio/streaming-server/selfhost && docker compose restart radio'

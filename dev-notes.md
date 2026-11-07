@@ -74,11 +74,15 @@ Routes (`streaming-server/src/app.ts`):
   classifies it `down` / `silent` / `choppy` / `healthy`. `sourceRatio` is
   source audio seconds per wall second (<0.9 = cutting out); `pipelineRatio`
   is the same for our HLS output; `cause` is `source`, `us` or `none`.
+  With `LISTENER_CHECK_URL` set (e.g. `https://stream.atthebunga.com`), the same window also samples
+  our own public `/stream` as a listener gets it: `listener` / `listenerRatio`, and `cause` becomes
+  `delivery` when source and pipeline are fine but the listener hears gaps. Each check holds a
+  `/stream` encode open for ~100 s, so it's off on Fly.
   Informational only: it never changes `status` or pages.
 - `GET /history?station=<slug|*>&since=<ISO>&limit=<n>` — status transitions
   logged every 20s to `/data/hls/_status-history.jsonl` (30-day retention).
   `*` is the site as a whole. Events with `"kind":"quality"` are quality
-  changes from the poller above (with `cause` and the two ratios). Use it to see what happened during an alert:
+  changes from the poller above (with `cause`, the ratios, and `listener` when that check is on). Use it to see what happened during an alert:
   `curl 'https://stream.atthebunga.com/history?since=2026-10-03T12:00:00Z'`
 - `GET /stations` — station metadata plus `hlsPath` / `streamPath` for the web player
 - `HEAD /:station` — returns `Content-Type: application/x-mpegURL` immediately
