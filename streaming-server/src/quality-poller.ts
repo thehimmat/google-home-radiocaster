@@ -10,8 +10,10 @@ import {
 
 /**
  * Periodically samples each station's source (see stream-quality) and compares
- * it with how fast our own HLS pipeline is producing audio, so "it's cutting
- * out" can be pinned on the broadcaster or on us. Results show on /health and
+ * it with how fast our own HLS pipeline is producing audio and, with
+ * listenerUrl set, with what a listener of our public /stream receives over
+ * the same window, so "it's cutting out" can be pinned on the broadcaster, on
+ * us, or on delivery. Results show on /health and
  * quality changes are logged to /history (kind "quality"). Never pages: per
  * the alerting policy, single-station problems are labelled, not alerted.
  */
@@ -23,6 +25,10 @@ export interface QualityReport {
   sourceRatio: number | null;
   /** Our HLS output audio seconds per wall second since the previous poll. */
   pipelineRatio: number | null;
+  /** How our public stream sounded over the same window; null when not checked. */
+  listener: SourceQuality | null;
+  /** Listener audio seconds per wall second. */
+  listenerRatio: number | null;
   checkedAt: string;
 }
 
@@ -58,6 +64,11 @@ export interface QualityPollerOpts {
   segmentSeconds?: number;
   /** Only stations this returns true for are sampled (the live ones). */
   isActive?: (station: string) => boolean;
+  /**
+   * Our public stream URL for a station (through Cloudflare, as a Cast device
+   * reaches it), sampled alongside the source. Omit to skip the listener check.
+   */
+  listenerUrl?: (station: string) => string | null;
 }
 
 const round2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
@@ -83,13 +94,21 @@ export class QualityPoller {
     // An off-air source has no audio to grade, and sampling it costs an FFmpeg.
     if (this.opts.isActive && !this.opts.isActive(station)) return;
 
-    let sample: SourceSample;
-    try {
-      sample = await this.opts.sample(url);
-    } catch (err) {
-      console.error(`[quality:${station}] sample failed: ${err}`);
+    // Same window for both, so a gap a listener hears can be matched against the source.
+    const listenerUrl = this.opts.listenerUrl?.(station) ?? null;
+    const [source, heard] = await Promise.allSettled([
+      this.opts.sample(url),
+      listenerUrl ? this.opts.sample(listenerUrl) : Promise.resolve(null),
+    ]);
+    if (source.status === 'rejected') {
+      console.error(`[quality:${station}] sample failed: ${source.reason}`);
       return;
     }
+    if (heard.status === 'rejected') {
+      console.error(`[quality:${station}] listener sample failed: ${heard.reason}`);
+    }
+    const sample: SourceSample = source.value;
+    const listenerSample = heard.status === 'fulfilled' ? heard.value : null;
 
     const at = this.now();
     const seq = this.opts.readSequence(station);
@@ -99,20 +118,24 @@ export class QualityPoller {
     else this.sequences.delete(station);
 
     const quality = classifySample(sample);
+    const listener = listenerSample ? classifySample(listenerSample) : null;
     const report: QualityReport = {
       quality,
-      cause: attributeCause(quality, ours),
+      cause: attributeCause(quality, ours, listener),
       sourceRatio: round2(realtimeRatio(sample)),
       pipelineRatio: round2(ours),
+      listener,
+      listenerRatio: listenerSample ? round2(realtimeRatio(listenerSample)) : null,
       checkedAt: new Date(at).toISOString(),
     };
 
     const prev = this.reports.get(station);
     this.reports.set(station, report);
-    if (prev?.quality === quality) return;
+    if (prev?.quality === quality && prev.listener === listener) return;
 
     console.log(
-      `[quality:${station}] ${prev?.quality ?? 'start'} -> ${quality} (cause=${report.cause} source=${report.sourceRatio}x ours=${report.pipelineRatio}x)`,
+      `[quality:${station}] ${prev?.quality ?? 'start'} -> ${quality} (cause=${report.cause} source=${report.sourceRatio}x ours=${report.pipelineRatio}x` +
+        (listenerUrl ? ` listener=${listener ?? 'failed'} ${report.listenerRatio}x)` : ')'),
     );
     try {
       this.opts.recorder.record({
@@ -125,6 +148,7 @@ export class QualityPoller {
         cause: report.cause,
         sourceRatio: report.sourceRatio,
         pipelineRatio: report.pipelineRatio,
+        ...(listenerUrl ? { listener, listenerRatio: report.listenerRatio } : {}),
       });
     } catch (err) {
       console.error(`[quality] could not record history: ${err}`);

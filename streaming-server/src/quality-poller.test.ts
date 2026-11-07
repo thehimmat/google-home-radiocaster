@@ -107,3 +107,80 @@ describe('QualityPoller with off-air stations', () => {
     expect(sample).toHaveBeenCalledWith('https://a');
   });
 });
+
+describe('QualityPoller listener check', () => {
+  const healthy: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [] };
+  const gappy: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [0.5, 0.8, 1.2] };
+
+  function setup(samples: Record<string, SourceSample[] | Error>, listenerUrl?: (s: string) => string | null) {
+    const events: StatusEvent[] = [];
+    const calls: string[] = [];
+    const counts: Record<string, number> = {};
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const poller = new QualityPoller({
+      stations: { 'golden-temple': { url: 'https://src' } },
+      sample: async (url) => {
+        calls.push(url);
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setImmediate(r));
+        inFlight--;
+        const list = samples[url];
+        if (list instanceof Error) throw list;
+        const i = counts[url] = (counts[url] ?? -1) + 1;
+        return list[Math.min(i, list.length - 1)];
+      },
+      readSequence: () => null,
+      recorder: { record: (e) => events.push(e) },
+      listenerUrl,
+    });
+    return { poller, events, calls, maxInFlight: () => maxInFlight };
+  }
+
+  const ours = (s: string) => `https://stream.example/${s}/stream`;
+
+  it('samples the source and our public stream at the same time', async () => {
+    const { poller, calls, maxInFlight } = setup({ 'https://src': [healthy], [ours('golden-temple')]: [healthy] }, ours);
+    await poller.poll('golden-temple');
+    expect(calls.sort()).toEqual(['https://src', 'https://stream.example/golden-temple/stream']);
+    expect(maxInFlight()).toBe(2);
+  });
+
+  it('blames delivery when the source is clean but what a listener gets has gaps', async () => {
+    const { poller, events } = setup({ 'https://src': [healthy], [ours('golden-temple')]: [gappy] }, ours);
+    await poller.poll('golden-temple');
+    expect(poller.latest('golden-temple')).toMatchObject({
+      quality: 'healthy',
+      listener: 'choppy',
+      listenerRatio: 1,
+      cause: 'delivery',
+    });
+    expect(events[0]).toMatchObject({ to: 'healthy', listener: 'choppy', cause: 'delivery' });
+  });
+
+  it('logs a change in what the listener hears even when the source stays the same', async () => {
+    const { poller, events } = setup(
+      { 'https://src': [healthy], [ours('golden-temple')]: [healthy, gappy, gappy] },
+      ours,
+    );
+    for (let i = 0; i < 3; i++) await poller.poll('golden-temple');
+    expect(events.map((e) => [e.to, e.listener])).toEqual([
+      ['healthy', 'healthy'],
+      ['healthy', 'choppy'],
+    ]);
+  });
+
+  it('keeps the source result if the listener sample fails', async () => {
+    const { poller } = setup({ 'https://src': [healthy], [ours('golden-temple')]: new Error('boom') }, ours);
+    await poller.poll('golden-temple');
+    expect(poller.latest('golden-temple')).toMatchObject({ quality: 'healthy', listener: null, cause: 'none' });
+  });
+
+  it('samples only the source when no listener URL is configured', async () => {
+    const { poller, calls } = setup({ 'https://src': [healthy] });
+    await poller.poll('golden-temple');
+    expect(calls).toEqual(['https://src']);
+    expect(poller.latest('golden-temple')).toMatchObject({ listener: null, listenerRatio: null });
+  });
+});
