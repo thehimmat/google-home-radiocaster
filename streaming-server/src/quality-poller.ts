@@ -1,8 +1,9 @@
-import { StatusRecorder } from './status-history';
+import { LevelRecorder, StatusRecorder } from './status-history';
 import {
   attributeCause,
   Cause,
   classifySample,
+  meanLevelDb,
   realtimeRatio,
   SourceQuality,
   SourceSample,
@@ -29,6 +30,9 @@ export interface QualityReport {
   listener: SourceQuality | null;
   /** Listener audio seconds per wall second. */
   listenerRatio: number | null;
+  /** Mean loudness (dB) of the source and of what a listener heard; null if unmeasured. */
+  sourceDb: number | null;
+  listenerDb: number | null;
   checkedAt: string;
 }
 
@@ -60,6 +64,8 @@ export interface QualityPollerOpts {
   /** Current EXT-X-MEDIA-SEQUENCE of our playlist for a station, or null. */
   readSequence: (station: string) => number | null;
   recorder: StatusRecorder;
+  /** Receives every poll's levels (not only changes); omit to keep no level log. */
+  levels?: LevelRecorder;
   now?: () => number;
   segmentSeconds?: number;
   /** Only stations this returns true for are sampled (the live ones). */
@@ -72,6 +78,7 @@ export interface QualityPollerOpts {
 }
 
 const round2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
+const round1 = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
 
 export class QualityPoller {
   private readonly reports = new Map<string, QualityReport>();
@@ -126,8 +133,25 @@ export class QualityPoller {
       pipelineRatio: round2(ours),
       listener,
       listenerRatio: listenerSample ? round2(realtimeRatio(listenerSample)) : null,
+      sourceDb: round1(meanLevelDb(sample)),
+      listenerDb: listenerSample ? round1(meanLevelDb(listenerSample)) : null,
       checkedAt: new Date(at).toISOString(),
     };
+
+    try {
+      this.opts.levels?.record({
+        ts: report.checkedAt,
+        station,
+        quality,
+        sourceDb: report.sourceDb,
+        sourceRatio: report.sourceRatio,
+        ...(listenerUrl
+          ? { listener, listenerDb: report.listenerDb, listenerRatio: report.listenerRatio }
+          : {}),
+      });
+    } catch (err) {
+      console.error(`[quality] could not record levels: ${err}`);
+    }
 
     const prev = this.reports.get(station);
     this.reports.set(station, report);
@@ -148,7 +172,8 @@ export class QualityPoller {
         cause: report.cause,
         sourceRatio: report.sourceRatio,
         pipelineRatio: report.pipelineRatio,
-        ...(listenerUrl ? { listener, listenerRatio: report.listenerRatio } : {}),
+        sourceDb: report.sourceDb,
+        ...(listenerUrl ? { listener, listenerRatio: report.listenerRatio, listenerDb: report.listenerDb } : {}),
       });
     } catch (err) {
       console.error(`[quality] could not record history: ${err}`);

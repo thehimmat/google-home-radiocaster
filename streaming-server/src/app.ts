@@ -5,7 +5,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { StationBroadcaster, SpawnFn } from './broadcaster';
 import { describeClient } from './client-info';
 import { UpstreamMonitor } from './upstream-monitor';
-import { StatusReader } from './status-history';
+import { LevelReader, Reader, StatusReader } from './status-history';
 import { StationHealth, siteStatus } from './status-tracker';
 import { QualityReport } from './quality-poller';
 import { AirState } from './station-supervisor';
@@ -143,6 +143,8 @@ export function createApp(
   // StationSupervisor state per station. Dormant stations are hidden from
   // /stations; off-air ones stay listed and /health marks them off-air.
   airState?: AirStateFn,
+  // Per-poll source/listener levels served at /levels; omitted → /levels is 404.
+  levels?: LevelReader,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -171,23 +173,11 @@ export function createApp(
 
   // Status transition log (see StatusHistory), for reconstructing outages:
   //   /history?station=<slug|*>&since=<ISO time>&limit=<n>
-  app.get('/history', (req, res) => {
-    if (!history) { res.sendStatus(404); return; }
-    const { station, since, limit } = req.query;
-    const sinceMs = typeof since === 'string' ? Date.parse(since) : undefined;
-    if (sinceMs !== undefined && Number.isNaN(sinceMs)) {
-      res.status(400).json({ error: 'since must be an ISO 8601 time' });
-      return;
-    }
-    const limitN = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
-    res.set('Access-Control-Allow-Origin', '*').json(
-      history.read({
-        station: typeof station === 'string' ? station : undefined,
-        since: sinceMs,
-        limit: limitN !== undefined && limitN > 0 ? limitN : undefined,
-      }),
-    );
-  });
+  app.get('/history', (req, res) => serveLog(history, req, res));
+
+  // Every quality poll's loudness (see LevelLog), to tell a quiet source from a quiet stream:
+  //   /levels?station=<slug>&since=<ISO time>&limit=<n>
+  app.get('/levels', (req, res) => serveLog(levels, req, res));
 
   // Station list for the web player: display metadata plus the paths clients
   // should use — hlsPath for browsers (hls.js / Safari), streamPath for Cast.
@@ -298,3 +288,22 @@ export function createApp(
 }
 
 export { HLS_LIST_SIZE, hlsDir, playlistPath };
+
+/** Shared handler for the JSON-lines logs: station, since (ISO) and limit filters, CORS. */
+function serveLog<T>(log: Reader<T> | undefined, req: express.Request, res: express.Response): void {
+  if (!log) { res.sendStatus(404); return; }
+  const { station, since, limit } = req.query;
+  const sinceMs = typeof since === 'string' ? Date.parse(since) : undefined;
+  if (sinceMs !== undefined && Number.isNaN(sinceMs)) {
+    res.status(400).json({ error: 'since must be an ISO 8601 time' });
+    return;
+  }
+  const limitN = typeof limit === 'string' ? parseInt(limit, 10) : undefined;
+  res.set('Access-Control-Allow-Origin', '*').json(
+    log.read({
+      station: typeof station === 'string' ? station : undefined,
+      since: sinceMs,
+      limit: limitN !== undefined && limitN > 0 ? limitN : undefined,
+    }),
+  );
+}

@@ -34,6 +34,11 @@ export interface SourceSample {
   mediaSeconds: number;
   /** Durations (s) of each silence silencedetect reported. */
   silences: number[];
+  /**
+   * RMS level (dB) of each second of audio; -Infinity for digital silence.
+   * Optional so callers that only grade timing needn't fill it in.
+   */
+  rmsDb?: number[];
 }
 
 /** Below this fraction of real time, a listener hears gaps. */
@@ -44,6 +49,22 @@ const DROPOUT_MAX_S = 3;
 const CHOPPY_DROPOUTS = 3;
 /** silencedetect threshold: quieter than this counts as silence. */
 const SILENCE_DB = -50;
+
+/** Floor for an all-silent sample, so the level stays a finite JSON number. */
+const SILENT_DB = -120;
+
+/**
+ * Mean loudness of a sample in dB, power-averaged over its per-second RMS
+ * levels (averaging the dB numbers would understate loud passages). Catches
+ * audio that is quiet but above the silencedetect threshold, which
+ * classifySample calls healthy. Null when nothing was measured.
+ */
+export function meanLevelDb(s: SourceSample): number | null {
+  const levels = s.rmsDb ?? [];
+  if (levels.length === 0) return null;
+  const power = levels.reduce((sum, db) => sum + 10 ** (db / 10), 0) / levels.length;
+  return power > 0 ? Math.max(SILENT_DB, 10 * Math.log10(power)) : SILENT_DB;
+}
 
 export function realtimeRatio(s: SourceSample): number | null {
   return s.wallSeconds > 0 ? s.mediaSeconds / s.wallSeconds : null;
@@ -82,13 +103,24 @@ export function attributeCause(
   return 'none';
 }
 
+const RMS_KEY = 'lavfi.astats.Overall.RMS_level';
+const RMS_LINE = /lavfi\.astats\.Overall\.RMS_level=(-?inf|-?[\d.]+)/;
+
 /** Decode-only FFmpeg (no encode, no output file): cheap enough to run periodically. */
 export function buildSampleArgs(upstreamUrl: string): string[] {
   return [
     '-hide_banner', '-nostats',
     ...upstreamInputArgs(upstreamUrl),
     '-vn',
-    '-af', `silencedetect=n=${SILENCE_DB}dB:d=${DROPOUT_MIN_S}`,
+    // silencedetect for dropouts, then one RMS reading per second of audio (resampled so a
+    // second is a fixed sample count whatever the source rate), printed to stderr.
+    '-af', [
+      `silencedetect=n=${SILENCE_DB}dB:d=${DROPOUT_MIN_S}`,
+      'aresample=16000',
+      'asetnsamples=n=16000',
+      'astats=metadata=1:reset=1:measure_overall=RMS_level:measure_perchannel=none',
+      `ametadata=mode=print:key=${RMS_KEY}`,
+    ].join(','),
     '-progress', 'pipe:1',
     '-stats_period', '1',
     '-f', 'null', '-',
@@ -122,6 +154,7 @@ export function sampleSource(upstreamUrl: string, opts: SampleOpts): Promise<Sou
     let last: [number, number] | null = null;
     let mediaNow = 0;
     const silences: number[] = [];
+    const rmsDb: number[] = [];
     let openSilenceStart: number | null = null;
     let done = false;
 
@@ -144,6 +177,8 @@ export function sampleSource(upstreamUrl: string, opts: SampleOpts): Promise<Sou
     lines(proc.stderr, (line) => {
       const start = /silence_start: (-?[\d.]+)/.exec(line);
       if (start) openSilenceStart = parseFloat(start[1]);
+      const rms = RMS_LINE.exec(line);
+      if (rms) rmsDb.push(rms[1].endsWith('inf') ? -Infinity : parseFloat(rms[1]));
       const end = /silence_duration: ([\d.]+)/.exec(line);
       if (end) {
         silences.push(parseFloat(end[1]));
@@ -165,6 +200,7 @@ export function sampleSource(upstreamUrl: string, opts: SampleOpts): Promise<Sou
         wallSeconds: b && l ? (l[0] - b[0]) / 1000 : 0,
         mediaSeconds: b && l ? l[1] - b[1] : 0,
         silences,
+        rmsDb,
       });
       proc.kill('SIGKILL');
     };

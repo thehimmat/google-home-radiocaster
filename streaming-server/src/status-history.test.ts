@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { StatusHistory, StatusEvent } from './status-history';
+import { LevelLog, LevelReading, StatusHistory, StatusEvent } from './status-history';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -78,5 +78,29 @@ describe('StatusHistory', () => {
 
     expect(() => history.prune()).not.toThrow();
     expect(history.read()).toHaveLength(1);
+  });
+});
+
+describe('LevelLog', () => {
+  const reading = (station: string, ts: string, sourceDb: number): LevelReading =>
+    ({ ts, station, quality: 'healthy', sourceDb, sourceRatio: 1 });
+
+  it('stores one reading per poll and filters by station and time, like StatusHistory', () => {
+    const log = new LevelLog(tmpFile());
+    log.record(reading('golden-temple', '2026-11-07T15:03:00.000Z', -44));
+    log.record(reading('san-jose', '2026-11-07T15:04:00.000Z', -20));
+    log.record(reading('golden-temple', '2026-11-07T15:08:00.000Z', -24));
+
+    expect(log.read({ station: 'golden-temple', since: Date.parse('2026-11-07T15:05:00Z') }))
+      .toEqual([reading('golden-temple', '2026-11-07T15:08:00.000Z', -24)]);
+  });
+
+  it('keeps 30 days by default, pruning older readings', () => {
+    const now = Date.parse('2026-12-10T00:00:00Z');
+    const log = new LevelLog(tmpFile(), undefined, () => now);
+    log.record(reading('a', new Date(now - 31 * DAY_MS).toISOString(), -30));
+    log.record(reading('a', new Date(now - DAY_MS).toISOString(), -30));
+    log.prune();
+    expect(log.read()).toHaveLength(1);
   });
 });

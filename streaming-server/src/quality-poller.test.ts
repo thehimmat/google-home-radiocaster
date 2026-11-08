@@ -1,6 +1,6 @@
 import { QualityPoller, pipelineRatio } from './quality-poller';
 import { SourceSample } from './stream-quality';
-import { StatusEvent } from './status-history';
+import { LevelReading, StatusEvent } from './status-history';
 
 describe('pipelineRatio', () => {
   it('is media seconds produced per wall second between two playlist readings', () => {
@@ -91,6 +91,50 @@ describe('QualityPoller', () => {
   });
 });
 
+describe('QualityPoller level log', () => {
+  it('records a level reading on every poll, not only when the quality changes', async () => {
+    const quiet: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [], rmsDb: [-44] };
+    const loud: SourceSample = { ...quiet, rmsDb: [-24] };
+    const samples = [quiet, quiet, loud];
+    let i = 0;
+    let clock = Date.parse('2026-11-07T15:03:00.000Z');
+    const levels: LevelReading[] = [];
+    const poller = new QualityPoller({
+      stations: { 'golden-temple': { url: 'https://src' } },
+      sample: async () => samples[i++],
+      readSequence: () => null,
+      recorder: { record: () => undefined },
+      levels: { record: (r) => levels.push(r) },
+      listenerUrl: () => null,
+      now: () => clock,
+    });
+    for (let n = 0; n < 3; n++) {
+      await poller.poll('golden-temple');
+      clock += 300_000;
+    }
+    expect(levels).toEqual([
+      { ts: '2026-11-07T15:03:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -44, sourceRatio: 1 },
+      { ts: '2026-11-07T15:08:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -44, sourceRatio: 1 },
+      { ts: '2026-11-07T15:13:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -24, sourceRatio: 1 },
+    ]);
+  });
+
+  it('includes what the listener heard when the listener check is on', async () => {
+    const s: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [], rmsDb: [-30] };
+    const levels: LevelReading[] = [];
+    const poller = new QualityPoller({
+      stations: { a: { url: 'https://src' } },
+      sample: async () => s,
+      readSequence: () => null,
+      recorder: { record: () => undefined },
+      levels: { record: (r) => levels.push(r) },
+      listenerUrl: () => 'https://ours',
+    });
+    await poller.poll('a');
+    expect(levels[0]).toMatchObject({ sourceDb: -30, listener: 'healthy', listenerDb: -30, listenerRatio: 1 });
+  });
+});
+
 describe('QualityPoller with off-air stations', () => {
   it('does not sample a station that is not live, so off-air sources cost no FFmpeg', async () => {
     const sample = jest.fn(async (): Promise<SourceSample> => ({ gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [] }));
@@ -175,6 +219,15 @@ describe('QualityPoller listener check', () => {
     const { poller } = setup({ 'https://src': [healthy], [ours('golden-temple')]: new Error('boom') }, ours);
     await poller.poll('golden-temple');
     expect(poller.latest('golden-temple')).toMatchObject({ quality: 'healthy', listener: null, cause: 'none' });
+  });
+
+  it('reports the mean level of the source and of what a listener hears', async () => {
+    const { poller } = setup(
+      { 'https://src': [{ ...healthy, rmsDb: [-38.04, -38.04] }], [ours('golden-temple')]: [{ ...healthy, rmsDb: [-38.06] }] },
+      ours,
+    );
+    await poller.poll('golden-temple');
+    expect(poller.latest('golden-temple')).toMatchObject({ sourceDb: -38, listenerDb: -38.1 });
   });
 
   it('samples only the source when no listener URL is configured', async () => {

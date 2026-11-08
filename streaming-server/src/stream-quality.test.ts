@@ -4,6 +4,7 @@ import {
   attributeCause,
   buildSampleArgs,
   classifySample,
+  meanLevelDb,
   sampleSource,
   SourceSample,
 } from './stream-quality';
@@ -44,6 +45,23 @@ describe('classifySample', () => {
   });
 });
 
+describe('meanLevelDb', () => {
+  it('power-averages the per-second levels (a loud second outweighs a quiet one)', () => {
+    // -20 dB and -40 dB: mean power is (0.01 + 0.0001) / 2, about -23 dB, not -30 dB.
+    expect(meanLevelDb(sample({ rmsDb: [-20, -40] }))).toBeCloseTo(-22.97, 1);
+  });
+
+  it('counts digital silence as no power, floored at -120 dB when everything is silent', () => {
+    expect(meanLevelDb(sample({ rmsDb: [-20, -Infinity] }))).toBeCloseTo(-23.01, 1);
+    expect(meanLevelDb(sample({ rmsDb: [-Infinity, -Infinity] }))).toBe(-120);
+  });
+
+  it('is null when no level was measured', () => {
+    expect(meanLevelDb(sample())).toBeNull();
+    expect(meanLevelDb(sample({ rmsDb: [] }))).toBeNull();
+  });
+});
+
 describe('attributeCause', () => {
   it('blames the source when the source itself is unhealthy', () => {
     expect(attributeCause('choppy', 0.6)).toBe('source');
@@ -81,6 +99,8 @@ describe('buildSampleArgs', () => {
     const args = buildSampleArgs('https://example.com/live');
     expect(args).toEqual(expect.arrayContaining(['-i', 'https://example.com/live', '-f', 'null', '-progress', 'pipe:1']));
     expect(args.join(' ')).toContain('silencedetect=');
+    // Per-second loudness, printed so quiet-but-not-silent audio can be told apart.
+    expect(args.join(' ')).toContain('ametadata=mode=print:key=lavfi.astats.Overall.RMS_level');
     // Same input quirks as the real pipeline (user-agent, self-signed TLS).
     expect(args).toEqual(expect.arrayContaining(['-user_agent', 'WinampMPEG/5.0', '-tls_verify', '0']));
   });
@@ -142,6 +162,22 @@ describe('sampleSource', () => {
 
     const s = await result;
     expect(s.silences).toEqual([0.75, 2]);
+  });
+
+  it('collects the per-second RMS level, counting digital silence as -inf', async () => {
+    const { proc, spawnFn, now, setClock } = setup();
+    const result = sampleSource('https://x', { spawnFn, now, sampleMs: 40, warmupMs: 0 });
+
+    setClock(1000); proc.stdout.write('out_time_us=1000000\n');
+    proc.stderr.write('[Parsed_ametadata_4 @ 0x1] frame:1    pts:16000   pts_time:1\n');
+    proc.stderr.write('[Parsed_ametadata_4 @ 0x1] lavfi.astats.Overall.RMS_level=-38.599707\n');
+    proc.stderr.write('[Parsed_ametadata_4 @ 0x1] lavfi.astats.Overall.RMS_level=-inf\n');
+    // astats' own end-of-run summary must not be counted twice.
+    proc.stderr.write('[Parsed_astats_3 @ 0x1] RMS level dB: -40.3\n');
+    await tick(5);
+
+    const s = await result;
+    expect(s.rmsDb).toEqual([-38.599707, -Infinity]);
   });
 
   it('reports no audio when ffmpeg never makes progress', async () => {
