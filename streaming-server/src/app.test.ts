@@ -4,7 +4,7 @@ import * as path from 'path';
 import { createApp, readMediaSequence, StationMap } from './app';
 import { QualityReport } from './quality-poller';
 import { UpstreamMonitor } from './upstream-monitor';
-import { StatusEvent } from './status-history';
+import { LevelReading, StatusEvent } from './status-history';
 import { AirState } from './station-supervisor';
 
 const FIXTURE_ROOT = path.join('/tmp', 'hls-test-' + process.pid);
@@ -129,7 +129,7 @@ describe('GET /health', () => {
 
   it('includes the latest audio-quality report per station when a poller is wired in', async () => {
     const report: QualityReport = {
-      quality: 'choppy', cause: 'source', sourceRatio: 0.55, pipelineRatio: 0.6, listener: null, listenerRatio: null, checkedAt: '2026-10-03T22:00:00.000Z',
+      quality: 'choppy', cause: 'source', sourceRatio: 0.55, pipelineRatio: 0.6, listener: null, listenerRatio: null, sourceDb: -38, listenerDb: null, checkedAt: '2026-10-03T22:00:00.000Z',
     };
     const qualityApp = createApp(STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, {
       latest: (name) => (name === 'test-station' ? report : undefined),
@@ -248,6 +248,35 @@ describe('GET /history', () => {
 
   it('is 404 when history is not configured', async () => {
     const res = await request(app).get('/history');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /levels', () => {
+  const readings: LevelReading[] = [
+    { ts: '2026-11-07T15:03:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -44, sourceRatio: 1 },
+  ];
+  let lastQuery: unknown;
+  const levels = { read: (q: unknown) => { lastQuery = q; return readings; } };
+  const levelsApp = createApp(
+    STATIONS, FIXTURE_ROOT, undefined, undefined, undefined, undefined, undefined, undefined, undefined, levels,
+  );
+
+  it('returns level readings with CORS, passing station, since and limit through', async () => {
+    const res = await request(levelsApp).get('/levels?station=golden-temple&since=2026-11-07T15:00:00Z&limit=5');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(readings);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(lastQuery).toEqual({ station: 'golden-temple', since: Date.parse('2026-11-07T15:00:00Z'), limit: 5 });
+  });
+
+  it('rejects an unparseable since', async () => {
+    const res = await request(levelsApp).get('/levels?since=yesterday');
+    expect(res.status).toBe(400);
+  });
+
+  it('is 404 when the level log is not configured', async () => {
+    const res = await request(app).get('/levels');
     expect(res.status).toBe(404);
   });
 });

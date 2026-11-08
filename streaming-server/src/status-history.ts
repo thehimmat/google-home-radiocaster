@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { SourceQuality } from './stream-quality';
 
 /**
  * Append-only log of station status transitions, so an outage can be
@@ -26,6 +27,27 @@ export interface StatusEvent {
   /** Quality events with the listener check on: how our public stream sounded. */
   listener?: string | null;
   listenerRatio?: number | null;
+  /** Quality events: mean loudness (dB) of the source and, with the listener check, our stream. */
+  sourceDb?: number | null;
+  listenerDb?: number | null;
+}
+
+/**
+ * One QualityPoller sample, recorded on every poll (unlike StatusEvent, which
+ * only records changes), so a quiet stretch can be blamed afterwards: source
+ * quiet means the broadcaster; source loud but listener quiet means us.
+ */
+export interface LevelReading {
+  ts: string;
+  station: string;
+  quality: SourceQuality;
+  /** Mean source loudness in dB (see meanLevelDb); null if unmeasured. */
+  sourceDb: number | null;
+  sourceRatio: number | null;
+  /** Listener-check fields, present only when that check is on. */
+  listener?: SourceQuality | null;
+  listenerDb?: number | null;
+  listenerRatio?: number | null;
 }
 
 export interface HistoryQuery {
@@ -36,29 +58,35 @@ export interface HistoryQuery {
   limit?: number;
 }
 
-export interface StatusRecorder {
-  record(event: StatusEvent): void;
+export interface Recorder<T> {
+  record(entry: T): void;
 }
 
-export interface StatusReader {
-  read(query?: HistoryQuery): StatusEvent[];
+export interface Reader<T> {
+  read(query?: HistoryQuery): T[];
 }
+
+export type StatusRecorder = Recorder<StatusEvent>;
+export type StatusReader = Reader<StatusEvent>;
+export type LevelRecorder = Recorder<LevelReading>;
+export type LevelReader = Reader<LevelReading>;
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-export class StatusHistory implements StatusRecorder, StatusReader {
+/** Append-only JSON-lines log of timestamped, per-station entries. */
+class JsonlLog<T extends { ts: string; station: string }> implements Recorder<T>, Reader<T> {
   constructor(
     private readonly file: string,
     private readonly retentionMs = THIRTY_DAYS_MS,
     private readonly now: () => number = Date.now,
   ) {}
 
-  record(event: StatusEvent): void {
+  record(entry: T): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.appendFileSync(this.file, JSON.stringify(event) + '\n');
+    fs.appendFileSync(this.file, JSON.stringify(entry) + '\n');
   }
 
-  read(query: HistoryQuery = {}): StatusEvent[] {
+  read(query: HistoryQuery = {}): T[] {
     const matches = this.readAll().filter(
       (e) =>
         (query.station === undefined || e.station === query.station) &&
@@ -81,19 +109,19 @@ export class StatusHistory implements StatusRecorder, StatusReader {
       fs.writeFileSync(tmp, kept.map((e) => JSON.stringify(e) + '\n').join(''));
       fs.renameSync(tmp, this.file);
     } catch (err) {
-      console.error(`[status] could not prune history: ${err}`);
+      console.error(`[status] could not prune ${path.basename(this.file)}: ${err}`);
       try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
     }
   }
 
-  private readAll(): StatusEvent[] {
+  private readAll(): T[] {
     let raw: string;
     try {
       raw = fs.readFileSync(this.file, 'utf8');
     } catch {
       return [];
     }
-    const events: StatusEvent[] = [];
+    const events: T[] = [];
     for (const line of raw.split('\n')) {
       if (!line) continue;
       try {
@@ -105,3 +133,8 @@ export class StatusHistory implements StatusRecorder, StatusReader {
     return events;
   }
 }
+
+export class StatusHistory extends JsonlLog<StatusEvent> {}
+
+/** Every QualityPoller sample's levels (see LevelReading); ~1 line per station per poll. */
+export class LevelLog extends JsonlLog<LevelReading> {}

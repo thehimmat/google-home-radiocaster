@@ -8,7 +8,7 @@ import { cleanupHlsRoot, clearStationSegments } from './hls-cleanup';
 import { buildHlsArgs, HLS_SEGMENT_SECONDS } from './ffmpeg-args';
 import { maxEncodersFromEnv } from './encoder-limit';
 import { httpProbe, UpstreamMonitor } from './upstream-monitor';
-import { StatusHistory } from './status-history';
+import { LevelLog, StatusHistory } from './status-history';
 import { StatusTracker } from './status-tracker';
 import { QualityPoller } from './quality-poller';
 import { EncoderSlots, lastSeenLive, StationSupervisor } from './station-supervisor';
@@ -224,8 +224,14 @@ const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const statusHistory = new StatusHistory(
   process.env.STATUS_HISTORY_FILE ?? path.join(HLS_ROOT, '_status-history.jsonl'),
 );
-statusHistory.prune();
-setInterval(() => statusHistory.prune(), PRUNE_INTERVAL_MS);
+// Every quality poll's loudness (source and, with the listener check, our stream), served at /levels.
+const levelLog = new LevelLog(
+  process.env.LEVEL_LOG_FILE ?? path.join(HLS_ROOT, '_levels.jsonl'),
+);
+for (const log of [statusHistory, levelLog]) {
+  log.prune();
+  setInterval(() => log.prune(), PRUNE_INTERVAL_MS);
+}
 
 // ---------------------------------------------------------------------------
 // Station supervisors — FFmpeg runs only while a station's source has audio.
@@ -260,7 +266,8 @@ new StatusTracker(
 // Source quality poller — every QUALITY_INTERVAL_MS each station's source is
 // sampled for QUALITY_SAMPLE_MS (decode only, one station at a time) and
 // classified down/silent/choppy/healthy, so "it's cutting out" can be pinned
-// on the broadcaster or on us. Shown on /health, changes logged to /history.
+// on the broadcaster or on us. Shown on /health, changes logged to /history,
+// every poll's loudness logged to /levels.
 // ---------------------------------------------------------------------------
 
 const QUALITY_INTERVAL_MS = 5 * 60_000;
@@ -278,6 +285,7 @@ const qualityPoller = new QualityPoller({
   sample: (url) => sampleSource(url, { spawnFn: spawn, sampleMs: QUALITY_SAMPLE_MS, warmupMs: QUALITY_WARMUP_MS }),
   readSequence: (station) => readMediaSequence(HLS_ROOT, station),
   recorder: statusHistory,
+  levels: levelLog,
   segmentSeconds: HLS_SEGMENT_SECONDS,
   isActive: (station) => airState(station) === 'live',
   listenerUrl: LISTENER_CHECK_URL ? (station) => `${LISTENER_CHECK_URL}/${station}/stream` : undefined,
@@ -286,6 +294,7 @@ qualityPoller.start(QUALITY_INTERVAL_MS);
 
 const app = createApp(
   STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller, airState,
+  levelLog,
 );
 
 app.listen(PORT, () => {
