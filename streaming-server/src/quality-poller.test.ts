@@ -93,7 +93,7 @@ describe('QualityPoller', () => {
 
 describe('QualityPoller level log', () => {
   it('records a level reading on every poll, not only when the quality changes', async () => {
-    const quiet: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [], rmsDb: [-44] };
+    const quiet: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [], rmsDb: [-34] };
     const loud: SourceSample = { ...quiet, rmsDb: [-24] };
     const samples = [quiet, quiet, loud];
     let i = 0;
@@ -113,8 +113,8 @@ describe('QualityPoller level log', () => {
       clock += 300_000;
     }
     expect(levels).toEqual([
-      { ts: '2026-11-07T15:03:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -44, sourceRatio: 1 },
-      { ts: '2026-11-07T15:08:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -44, sourceRatio: 1 },
+      { ts: '2026-11-07T15:03:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -34, sourceRatio: 1 },
+      { ts: '2026-11-07T15:08:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -34, sourceRatio: 1 },
       { ts: '2026-11-07T15:13:00.000Z', station: 'golden-temple', quality: 'healthy', sourceDb: -24, sourceRatio: 1 },
     ]);
   });
@@ -235,5 +235,61 @@ describe('QualityPoller listener check', () => {
     await poller.poll('golden-temple');
     expect(calls).toEqual(['https://src']);
     expect(poller.latest('golden-temple')).toMatchObject({ listener: null, listenerRatio: null });
+  });
+});
+
+describe('QualityPoller quiet state (nightly break at a noise floor, not silence)', () => {
+  const at = (db: number): SourceSample => ({ gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [], rmsDb: [db] });
+
+  function run(levels: (number | SourceSample)[]) {
+    const events: StatusEvent[] = [];
+    const logged: LevelReading[] = [];
+    const samples = levels.map((l) => (typeof l === 'number' ? at(l) : l));
+    let i = 0;
+    const poller = new QualityPoller({
+      stations: { 'golden-temple': { url: 'https://src' } },
+      sample: async () => samples[i++],
+      readSequence: () => null,
+      recorder: { record: (e) => events.push(e) },
+      levels: { record: (r) => logged.push(r) },
+    });
+    return {
+      poller,
+      events,
+      logged,
+      pollAll: async () => { for (let n = 0; n < samples.length; n++) await poller.poll('golden-temple'); },
+    };
+  }
+
+  it('turns quiet after two polls in a row below -40 dB (SGPC sends a -46 dB hum during the break)', async () => {
+    const { poller, logged, pollAll } = run([-20, -46, -46.3]);
+    await pollAll();
+    expect(logged.map((r) => r.quality)).toEqual(['healthy', 'healthy', 'quiet']);
+    expect(poller.latest('golden-temple')).toMatchObject({ quality: 'quiet', cause: 'source', sourceDb: -46.3 });
+  });
+
+  it('stays healthy through a single soft poll (a quiet alaap or a pause between shabads)', async () => {
+    const { logged, pollAll } = run([-20, -43.4, -21.7, -40.2, -17.2]);
+    await pollAll();
+    expect(logged.every((r) => r.quality === 'healthy')).toBe(true);
+  });
+
+  it('logs the transitions into and out of quiet', async () => {
+    const { events, pollAll } = run([-20, -46, -46, -45, -24.4]);
+    await pollAll();
+    expect(events.map((e) => [e.from, e.to])).toEqual([
+      [null, 'healthy'],
+      ['healthy', 'quiet'],
+      ['quiet', 'healthy'],
+    ]);
+    expect(events[1]).toMatchObject({ cause: 'source', upstreamReachable: true, sourceDb: -46 });
+  });
+
+  it('keeps silent and down as they are, and a silent poll counts toward quiet', async () => {
+    const silent: SourceSample = { gotAudio: true, wallSeconds: 20, mediaSeconds: 20, silences: [20], rmsDb: [-70] };
+    const down: SourceSample = { gotAudio: false, wallSeconds: 20, mediaSeconds: 0, silences: [] };
+    const { logged, pollAll } = run([silent, silent, -46, down, -46, -46]);
+    await pollAll();
+    expect(logged.map((r) => r.quality)).toEqual(['silent', 'silent', 'quiet', 'down', 'healthy', 'quiet']);
   });
 });

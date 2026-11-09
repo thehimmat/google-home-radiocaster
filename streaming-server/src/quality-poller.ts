@@ -4,6 +4,8 @@ import {
   Cause,
   classifySample,
   meanLevelDb,
+  QUIET_DB,
+  QUIET_POLLS,
   realtimeRatio,
   SourceQuality,
   SourceSample,
@@ -83,6 +85,8 @@ const round1 = (n: number | null) => (n === null ? null : Math.round(n * 10) / 1
 export class QualityPoller {
   private readonly reports = new Map<string, QualityReport>();
   private readonly sequences = new Map<string, SequenceReading>();
+  /** Consecutive polls per station whose mean source level was below QUIET_DB. */
+  private readonly lowPolls = new Map<string, number>();
   private readonly now: () => number;
   private readonly segmentSeconds: number;
 
@@ -124,7 +128,11 @@ export class QualityPoller {
     if (reading) this.sequences.set(station, reading);
     else this.sequences.delete(station);
 
-    const quality = classifySample(sample);
+    const sourceDb = meanLevelDb(sample);
+    const low = sourceDb !== null && sourceDb < QUIET_DB ? (this.lowPolls.get(station) ?? 0) + 1 : 0;
+    this.lowPolls.set(station, low);
+    const graded = classifySample(sample);
+    const quality: SourceQuality = graded === 'healthy' && low >= QUIET_POLLS ? 'quiet' : graded;
     const listener = listenerSample ? classifySample(listenerSample) : null;
     const report: QualityReport = {
       quality,
@@ -133,7 +141,7 @@ export class QualityPoller {
       pipelineRatio: round2(ours),
       listener,
       listenerRatio: listenerSample ? round2(realtimeRatio(listenerSample)) : null,
-      sourceDb: round1(meanLevelDb(sample)),
+      sourceDb: round1(sourceDb),
       listenerDb: listenerSample ? round1(meanLevelDb(listenerSample)) : null,
       checkedAt: new Date(at).toISOString(),
     };

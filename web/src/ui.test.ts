@@ -89,6 +89,12 @@ describe('UI', () => {
     expect(rows[0].classList.contains('is-healthy')).toBe(true);
     expect(rows[0].classList.contains('is-choppy')).toBe(false);
     expect(rows[0].querySelector('.live-label')?.textContent).toBe('healthy');
+
+    // Darbar Sahib's nightly break comes through as a low hum, not silence.
+    ui.setLive(new Map([['golden-temple', 'quiet']]));
+    expect(rows[0].classList.contains('is-quiet')).toBe(true);
+    expect(rows[0].classList.contains('is-healthy')).toBe(false);
+    expect(rows[0].querySelector('.live-label')?.textContent).toBe('quiet');
   });
 
   it('shows off-air stations as "off air", not playable, below the others', () => {

@@ -161,13 +161,15 @@ body {
 }
 
 .station-live.is-choppy .live-dot,
-.station-live.is-silent .live-dot {
+.station-live.is-silent .live-dot,
+.station-live.is-quiet .live-dot {
   background: var(--warn);
   box-shadow: 0 0 6px var(--warn);
 }
 
 .station-live.is-choppy .live-label,
-.station-live.is-silent .live-label {
+.station-live.is-silent .live-label,
+.station-live.is-quiet .live-label {
   color: var(--warn);
 }
 

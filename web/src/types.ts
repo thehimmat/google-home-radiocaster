@@ -22,7 +22,7 @@ export type StationStatus = 'live' | 'source-down' | 'error' | 'off-air';
 
 /** Latest source audio-quality sample for a station (server's QualityPoller). */
 export interface StationQuality {
-  quality: 'down' | 'silent' | 'choppy' | 'healthy';
+  quality: 'down' | 'silent' | 'quiet' | 'choppy' | 'healthy';
 }
 
 export interface StationHealth {
@@ -40,4 +40,4 @@ export interface StationHealth {
  * whose fault a problem is: the server's attribution (status 'source-down'
  * vs 'error', quality.cause) is for /history and debugging, not the site.
  */
-export type StationBadge = 'down' | 'silent' | 'choppy' | 'healthy' | 'off-air';
+export type StationBadge = 'down' | 'silent' | 'quiet' | 'choppy' | 'healthy' | 'off-air';
