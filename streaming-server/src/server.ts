@@ -265,7 +265,7 @@ new StatusTracker(
 // ---------------------------------------------------------------------------
 // Source quality poller — every QUALITY_INTERVAL_MS each station's source is
 // sampled for QUALITY_SAMPLE_MS (decode only, one station at a time) and
-// classified down/silent/choppy/healthy, so "it's cutting out" can be pinned
+// classified down/silent/quiet/choppy/healthy, so "it's cutting out" can be pinned
 // on the broadcaster or on us. Shown on /health, changes logged to /history,
 // every poll's loudness logged to /levels.
 // ---------------------------------------------------------------------------

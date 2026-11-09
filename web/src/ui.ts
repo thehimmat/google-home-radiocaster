@@ -175,7 +175,7 @@ export class UI {
   }
 }
 
-const BADGES: readonly StationBadge[] = ['down', 'silent', 'choppy', 'healthy', 'off-air'];
+const BADGES: readonly StationBadge[] = ['down', 'silent', 'quiet', 'choppy', 'healthy', 'off-air'];
 
 function el(tag: string, className: string): HTMLElement {
   const node = document.createElement(tag);

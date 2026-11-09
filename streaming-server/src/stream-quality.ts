@@ -11,13 +11,16 @@ import { upstreamInputArgs } from './ffmpeg-args';
  *
  *   down    — no audio arrived at all
  *   silent  — audio arrives, but it is (nearly) all silence
+ *   quiet   — audio arrives but has stayed very low for several polls (set by
+ *             QualityPoller, not classifySample: Darbar Sahib's nightly break
+ *             often comes through as a -46 dB hum, above the silence threshold)
  *   choppy  — audio arrives slower than real time, or keeps dropping out
  *   healthy — real-time audio with no repeated dropouts
  *
  * Deliberately approximate: thresholds are tuned for "is it obviously broken",
  * not broadcast QA.
  */
-export type SourceQuality = 'down' | 'silent' | 'choppy' | 'healthy';
+export type SourceQuality = 'down' | 'silent' | 'quiet' | 'choppy' | 'healthy';
 
 /**
  * Where a problem most likely lives: the broadcaster's source, our pipeline, or delivery (between
@@ -49,6 +52,15 @@ const DROPOUT_MAX_S = 3;
 const CHOPPY_DROPOUTS = 3;
 /** silencedetect threshold: quieter than this counts as silence. */
 const SILENCE_DB = -50;
+
+/**
+ * Mean source level (dB) below which a poll counts as low. Programme audio at
+ * Golden Temple runs -15 to -24 dB and dips past -40 only for a single poll;
+ * the break's noise floor sits at -44 to -49 dB (2026-11-08/09 /levels).
+ */
+export const QUIET_DB = -40;
+/** Low polls in a row before a station is called quiet (one is a soft passage). */
+export const QUIET_POLLS = 2;
 
 /** Floor for an all-silent sample, so the level stays a finite JSON number. */
 const SILENT_DB = -120;

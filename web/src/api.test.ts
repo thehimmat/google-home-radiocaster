@@ -71,6 +71,7 @@ describe('fetchHealth', () => {
         stations: [
           station('ok', { quality: { quality: 'healthy', cause: 'none' } }),
           station('quiet', { quality: { quality: 'silent', cause: 'source' } }),
+          station('break', { quality: { quality: 'quiet', cause: 'source' } }),
           station('gappy', { quality: { quality: 'choppy', cause: 'source' } }),
           station('ours', { segmentFresh: false, status: 'error' }),
           station('theirs', { segmentFresh: false, upstreamReachable: false, status: 'source-down' }),
@@ -82,7 +83,7 @@ describe('fetchHealth', () => {
 
     const health = await fetchHealth(BASE);
     expect(Object.fromEntries(health)).toEqual({
-      ok: 'healthy', quiet: 'silent', gappy: 'choppy', ours: 'down', theirs: 'down',
+      ok: 'healthy', quiet: 'silent', break: 'quiet', gappy: 'choppy', ours: 'down', theirs: 'down',
     });
   });
 
