@@ -15,6 +15,11 @@
  *   shabads sung in between (interludes) are not shown yet. For `holdSec` after
  *   committing, a different shabad must hold for `holdSwitchSec` to take over;
  *   after that, for `switchSec`. Interludes are logged so they can be shown later.
+ *   Both are 30 s for now: in the trial, a 60 s hold kept Raamkalee up for 47 s while
+ *   the Jap salok after it was being sung, and no reviewed audio had an interlude to
+ *   weigh against that. The interlude log is what to tune them with.
+ * - A brief flicker back to the shown shabad (under `resumeSec`) doesn't cancel a
+ *   challenger that is still being heard.
  *
  * Times are stream seconds. Pure logic: the caller feeds levels and engine events.
  */
@@ -56,6 +61,7 @@ export interface GateOptions {
   holdSec?: number;
   holdSwitchSec?: number;
   switchSec?: number;
+  resumeSec?: number;
 }
 
 interface Heard {
@@ -64,6 +70,8 @@ interface Heard {
   /** When the engine first reported this shabad. */
   firstHeard: number;
   lines: Set<number>;
+  /** When the shown shabad came back while this one was pending, if it has since. */
+  interruptedAt?: number | null;
 }
 
 interface Shown extends Heard {
@@ -89,8 +97,9 @@ export class DisplayGate {
       commitLines: opts.commitLines ?? 3,
       commitSec: opts.commitSec ?? 60,
       holdSec: opts.holdSec ?? 300,
-      holdSwitchSec: opts.holdSwitchSec ?? 60,
+      holdSwitchSec: opts.holdSwitchSec ?? 30,
       switchSec: opts.switchSec ?? 30,
+      resumeSec: opts.resumeSec ?? 10,
     };
   }
 
@@ -139,7 +148,12 @@ export class DisplayGate {
 
     const s = this.shown;
     if (s && shabad === s.shabad) {
-      this.pending = null;
+      // A brief return to the shown shabad (the engine flickering back) keeps a challenger's claim;
+      // only `resumeSec` of it drops the challenger.
+      if (this.pending) {
+        this.pending.interruptedAt ??= t;
+        if (t - this.pending.interruptedAt >= this.o.resumeSec) this.pending = null;
+      }
       s.line = line;
       if (line !== null) s.lines.add(line);
       if (s.committedAt === null && s.lines.size >= this.o.commitLines && t - s.firstHeard >= this.o.commitSec) {
@@ -154,6 +168,7 @@ export class DisplayGate {
       if (s?.committedAt != null) this.note({ t, kind: 'interlude', shabad });
     }
     const p = this.pending;
+    p.interruptedAt = null;
     p.line = line;
     if (line !== null) p.lines.add(line);
 

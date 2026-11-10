@@ -14,7 +14,9 @@ RUN npm init -y >/dev/null && npm install --no-audit --no-fund typescript@5.9.3 
 WORKDIR /runtime
 RUN npm init -y >/dev/null && npm install --no-audit --no-fund --ignore-scripts onnxruntime-node@1.23.2
 WORKDIR /ks
-RUN /tools/node_modules/.bin/tsc --outDir dist/engine --rootDir src/engine --module commonjs --target es2022 \
+# asr.ts imports onnxruntime-node's types.
+RUN ln -s /runtime/node_modules node_modules \
+ && /tools/node_modules/.bin/tsc --outDir dist/engine --rootDir src/engine --module commonjs --target es2022 \
       --lib es2022 --esModuleInterop --skipLibCheck --strict --typeRoots /tools/node_modules/@types --types node \
       src/engine/*.ts \
  && node scripts/fetch-assets.mjs --model-only
