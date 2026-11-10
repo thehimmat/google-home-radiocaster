@@ -33,6 +33,38 @@ services:
       retries: 3
     stop_grace_period: 10s
 
+  # Follows the shabad being sung (lyrics/ in this repo, Kirtan Saathi's engine). Opt-in: add
+  # COMPOSE_PROFILES=lyrics to .env. Reads the radio's own stream, so SGPC sees no extra listener.
+  lyrics:
+    image: ghcr.io/thehimmat/google-home-radiocaster/lyrics:${LYRICS_TAG:-latest}
+    profiles: [lyrics]
+    restart: unless-stopped
+    # Speech recognition runs nonstop; a cap keeps the radio and kosh's apps responsive. One station
+    # measured 0.89 of an Ampere core (2026-11-10), so 1.5 fits one; raise it before adding a second.
+    cpus: 1.5
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+    networks: [radio-edge]
+    environment:
+      RADIO_URL: http://radio:3001
+      LYRICS_STATIONS: ${LYRICS_STATIONS:-golden-temple}
+      PORT: "3002"
+      LYRICS_LOG_DIR: /data/lyrics
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      # Display changes and interludes, one JSONL per station, for scoring the follower later.
+      - ${LYRICS_DIR:-/srv/radio/lyrics}:/data/lyrics
+    depends_on: [radio]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
 networks:
   # Made by kosh-db's stack (gurmukhi-kosh, selfhost/docker-compose.apps.yml). Its gateway is the way in.
   radio-edge:
