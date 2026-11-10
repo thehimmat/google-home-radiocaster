@@ -31,6 +31,10 @@ export interface ScoreOptions {
   step?: number;
   /** A shown line counts as right if the caption showed it within this many seconds. */
   collarSec?: number;
+  /** Showing a shabad captioned this recently counts as lag, not a wrong lock. */
+  lagWindowSec?: number;
+  /** Showing a shabad captioned this soon after counts as early, not a wrong lock. */
+  earlyWindowSec?: number;
 }
 
 export interface ShabadScore {
@@ -48,8 +52,14 @@ export interface Score {
   /** Seconds with a caption on screen. */
   labelledSec: number;
   rightShabadSec: number;
-  /** Showing a different shabad from the caption's. The pass bar's number. */
+  /** Showing a different shabad from the caption's: lag + early + wrong locks. */
   wrongShabadSec: number;
+  /** Still showing a shabad after the caption moved on from it. */
+  lagSec: number;
+  /** Showing the next shabad before its caption appeared. */
+  earlySec: number;
+  /** Showing a shabad not captioned anywhere nearby: the engine heard the wrong shabad. */
+  wrongLockSec: number;
   /** Captioned, nothing shown. */
   missedSec: number;
   /** Shown with no caption (between shabads, or captions the labeller could not read). */
@@ -59,6 +69,7 @@ export interface Score {
   rightShare: number;
   /** Wrong-shabad seconds per hour of captioned audio (STTM's production build: about 111). */
   wrongPerHour: number;
+  wrongLockPerHour: number;
   shabads: ShabadScore[];
 }
 
@@ -70,12 +81,17 @@ function at<T extends { t: number }>(timeline: T[], t: number, from: { i: number
 export function scoreTimeline(truth: Truth[], timeline: Shown[], opts: ScoreOptions): Score {
   const step = opts.step ?? 0.5;
   const collar = opts.collarSec ?? 1;
+  const lagWindow = opts.lagWindowSec ?? 180;
+  const earlyWindow = opts.earlyWindowSec ?? 60;
   const sorted = [...truth].sort((a, b) => a.start - b.start);
   const truthAt = (t: number) => sorted.find((s) => t >= s.start && t < s.end) ?? null;
   const lineNear = (t: number, line: number) =>
     sorted.some((s) => s.line === line && s.start - collar <= t && t < s.end + collar);
 
-  let labelled = 0, right = 0, wrong = 0, missed = 0, unlabelled = 0, rightLine = 0;
+  const captionedNear = (shabad: number, from: number, to: number) =>
+    sorted.some((s) => opts.shabadOf(s.line) === shabad && s.start < to && s.end > from);
+
+  let labelled = 0, right = 0, wrong = 0, missed = 0, unlabelled = 0, rightLine = 0, lag = 0, early = 0, wrongLock = 0;
   const byShabad = new Map<number, ShabadScore>();
   const cursor = { i: 0 };
   for (let t = step / 2; t < opts.end; t += step) {
@@ -103,17 +119,25 @@ export function scoreTimeline(truth: Truth[], timeline: Shown[], opts: ScoreOpti
       if (shown.line !== null && lineNear(t, shown.line)) rightLine += step;
     } else {
       wrong += step;
+      const ss = shown.shabad as number;
+      if (captionedNear(ss, t - lagWindow, g.start)) lag += step;
+      else if (captionedNear(ss, g.end, t + earlyWindow)) early += step;
+      else wrongLock += step;
     }
   }
   return {
     labelledSec: labelled,
     rightShabadSec: right,
     wrongShabadSec: wrong,
+    lagSec: lag,
+    earlySec: early,
+    wrongLockSec: wrongLock,
     missedSec: missed,
     unlabelledShownSec: unlabelled,
     rightLineSec: rightLine,
     rightShare: right + wrong > 0 ? right / (right + wrong) : 0,
     wrongPerHour: labelled > 0 ? (wrong / labelled) * 3600 : 0,
+    wrongLockPerHour: labelled > 0 ? (wrongLock / labelled) * 3600 : 0,
     shabads: [...byShabad.values()].sort((a, b) => a.start - b.start),
   };
 }

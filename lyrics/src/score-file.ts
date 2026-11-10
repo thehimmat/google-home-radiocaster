@@ -80,7 +80,7 @@ async function score(labelsPath: string, tracePath: string, gateOpts: GateOption
   const pct = (x: number, of: number) => (of > 0 ? `${((100 * x) / of).toFixed(0)}%` : '-');
   const row = (label: string, r: Score) =>
     `${label.padEnd(6)} right ${pct(r.rightShabadSec, r.labelledSec).padStart(4)}  wrong ${r.wrongShabadSec.toFixed(0).padStart(4)} s ` +
-    `(${r.wrongPerHour.toFixed(0)} s/h)  missed ${pct(r.missedSec, r.labelledSec).padStart(4)}  ` +
+    `(lag ${r.lagSec.toFixed(0)}, early ${r.earlySec.toFixed(0)}, wrong lock ${r.wrongLockSec.toFixed(0)} = ${r.wrongLockPerHour.toFixed(0)} s/h)  missed ${pct(r.missedSec, r.labelledSec).padStart(4)}  ` +
     `right line ${pct(r.rightLineSec, r.rightShabadSec).padStart(4)} of right time  shown uncaptioned ${r.unlabelledShownSec.toFixed(0)} s`;
   console.log(`${labelsPath}: ${(results.raw.labelledSec / 60).toFixed(1)} min captioned of ${(end / 60).toFixed(1)} min`);
   console.log(row('raw', results.raw));

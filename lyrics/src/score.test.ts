@@ -29,6 +29,26 @@ describe('scoreTimeline', () => {
     expect(r.wrongPerHour).toBeCloseTo((10 / 90) * 3600);
   });
 
+  it('splits wrong time into lag, early and wrong locks', () => {
+    const t3: Truth[] = [
+      { start: 0, end: 50, line: 10 },
+      { start: 50, end: 100, line: 20 },
+      { start: 100, end: 200, line: 30 },
+    ];
+    const r = scoreTimeline(t3, [
+      { t: 0, shabad: 1, line: 10 },
+      { t: 60, shabad: 2, line: 20 }, // 50-60: still on shabad 1 (lag)
+      { t: 90, shabad: 3, line: 30 }, // 90-100: shabad 3 before its caption (early)
+      { t: 150, shabad: 4, line: 40 }, // 150-160: never sung nearby (wrong lock)
+      { t: 160, shabad: 3, line: 31 },
+    ], { shabadOf, end: 200 });
+    expect(r.wrongShabadSec).toBe(30);
+    expect(r.lagSec).toBe(10);
+    expect(r.earlySec).toBe(10);
+    expect(r.wrongLockSec).toBe(10);
+    expect(r.wrongLockPerHour).toBeCloseTo((10 / 200) * 3600);
+  });
+
   it('marks a line right when it matches the caption within the collar', () => {
     const r = scoreTimeline(truth, [
       { t: 0, shabad: 1, line: 10 },
