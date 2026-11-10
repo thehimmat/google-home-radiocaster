@@ -13,6 +13,7 @@ import { StatusTracker } from './status-tracker';
 import { QualityPoller } from './quality-poller';
 import { EncoderSlots, lastSeenLive, StationSupervisor } from './station-supervisor';
 import { sampleSource } from './stream-quality';
+import { httpUpstream, NowPlayingRelay } from './now-playing';
 
 const PORT = process.env.PORT ?? 3001;
 // Use /data/hls when mounted on a persistent Fly.io volume; fall back to /tmp for local dev.
@@ -292,9 +293,14 @@ const qualityPoller = new QualityPoller({
 });
 qualityPoller.start(QUALITY_INTERVAL_MS);
 
+// The lyrics follower (lyrics/), on kosh-db only. Without it, /now-playing is 404.
+const LYRICS_URL = process.env.LYRICS_URL;
+const nowPlaying = LYRICS_URL ? new NowPlayingRelay(httpUpstream(LYRICS_URL)) : undefined;
+if (!LYRICS_URL) console.log('LYRICS_URL not set: /now-playing disabled');
+
 const app = createApp(
   STATIONS, HLS_ROOT, ffmpegProcesses, spawn, broadcasters, upstreamMonitor, statusHistory, qualityPoller, airState,
-  levelLog,
+  levelLog, nowPlaying,
 );
 
 app.listen(PORT, () => {

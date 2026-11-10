@@ -9,6 +9,7 @@ import { LevelReader, Reader, StatusReader } from './status-history';
 import { StationHealth, siteStatus } from './status-tracker';
 import { QualityReport } from './quality-poller';
 import { AirState } from './station-supervisor';
+import { NowPlayingRelay } from './now-playing';
 
 export interface StationConfig {
   /** Upstream stream URL FFmpeg pulls from. */
@@ -145,6 +146,8 @@ export function createApp(
   airState?: AirStateFn,
   // Per-poll source/listener levels served at /levels; omitted → /levels is 404.
   levels?: LevelReader,
+  // The lyrics follower's now-playing state (kosh-db only); omitted → /now-playing is 404.
+  nowPlaying?: NowPlayingRelay,
 ): express.Express {
   const app = express();
   app.set('trust proxy', true);
@@ -178,6 +181,36 @@ export function createApp(
   // Every quality poll's loudness (see LevelLog), to tell a quiet source from a quiet stream:
   //   /levels?station=<slug>&since=<ISO time>&limit=<n>
   app.get('/levels', (req, res) => serveLog(levels, req, res));
+
+  // The shabad being sung, from the lyrics follower (see now-playing.ts). The web player reads these
+  // cross-origin: the JSON once, then the event stream for changes.
+  app.get('/now-playing/:station', async (req, res) => {
+    const { station } = req.params;
+    res.set('Access-Control-Allow-Origin', '*');
+    if (!nowPlaying || !stations[station]) { res.status(404).json({ error: 'no lyrics for this station' }); return; }
+    const a = await nowPlaying.get(station);
+    res.set('Cache-Control', 'no-store').status(a.status).json(a.body ?? {});
+  });
+
+  app.get('/now-playing/:station/events', (req, res) => {
+    const { station } = req.params;
+    res.set('Access-Control-Allow-Origin', '*');
+    if (!nowPlaying || !stations[station]) { res.status(404).json({ error: 'no lyrics for this station' }); return; }
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-store',
+      // Tells nginx-style proxies not to buffer; Caddy flushes event streams on its own.
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    const unsubscribe = nowPlaying.subscribe(station, (data) => res.write(`data: ${JSON.stringify(data)}\n\n`));
+    // A comment every 25 s keeps Cloudflare (100 s idle limit) from closing a quiet stream.
+    const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25_000);
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
 
   // Station list for the web player: display metadata plus the paths clients
   // should use — hlsPath for browsers (hls.js / Safari), streamPath for Cast.
