@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createServer, NowPlaying } from './app';
-import { isFatehText } from './fateh';
+import { boundaryLines } from './fateh';
 import { DisplayGate, GateNote } from './gate';
 import { EngineLike, LyricsRunner, SAMPLE_RATE, SourceStream } from './runner';
 
@@ -19,7 +19,7 @@ const PORT = Number(process.env.PORT ?? 3002);
 const LOG_DIR = process.env.LYRICS_LOG_DIR ?? '/data/lyrics';
 const THREADS = Number(process.env.LYRICS_THREADS ?? 1);
 // Kirtan Saathi's pacer: 2 decodes half as often as its default, which the trial showed still
-// follows kirtan (0.33 of a core per station on an M2).
+// follows kirtan. Measured per station: 0.33 to 0.4 of a core on an M2, 0.89 on kosh-db's Ampere A1.
 const PACE = Number(process.env.LYRICS_PACE ?? 2);
 
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
@@ -45,9 +45,8 @@ async function main(): Promise<void> {
   const model = await AsrModel.load(path.join(KS_DIR, 'models', 'model.int8.onnx'), path.join(KS_DIR, 'models', 'edge-vocab.json'), {
     intraOpThreads: THREADS,
   });
-  const fatehLines = new Set<number>();
-  corpus.plain.forEach((text, i) => { if (isFatehText(text)) fatehLines.add(i); });
-  console.log(`[lyrics] corpus ${corpus.plain.length} lines, ${fatehLines.size} Fateh lines; threads=${THREADS} pace=${PACE}`);
+  const fatehLines = boundaryLines(corpus);
+  console.log(`[lyrics] corpus ${corpus.plain.length} lines, ${fatehLines.size} boundary lines; threads=${THREADS} pace=${PACE}`);
 
   const describe = (station: string, gate: DisplayGate): NowPlaying => {
     const d = gate.current();

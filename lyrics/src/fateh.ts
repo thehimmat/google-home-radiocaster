@@ -16,3 +16,21 @@ function squash(text: string): string {
 export function isFatehText(text: string): boolean {
   return FATEH.test(squash(text));
 }
+
+/**
+ * Corpus lines that mean "boundary", not lyrics: the Fateh greeting wherever it appears, and
+ * every line of Zafarnama, which the engine reaches for when it hears the greeting (live on
+ * 2026-11-10 it showed a Zafarnama line for 18 s at the end of Asa di Vaar). Zafarnama is
+ * not sung in Darbar Sahib's kirtan.
+ */
+export function boundaryLines(corpus: {
+  plain: string[];
+  shabadOf: Int32Array;
+  shabads: { section: string }[];
+}): Set<number> {
+  const out = new Set<number>();
+  corpus.plain.forEach((text, i) => {
+    if (isFatehText(text) || corpus.shabads[corpus.shabadOf[i]]?.section === 'Zafarnama') out.add(i);
+  });
+  return out;
+}

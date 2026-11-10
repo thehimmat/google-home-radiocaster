@@ -39,8 +39,8 @@ services:
     image: ghcr.io/thehimmat/google-home-radiocaster/lyrics:${LYRICS_TAG:-latest}
     profiles: [lyrics]
     restart: unless-stopped
-    # Speech recognition runs nonstop; a cap keeps the radio and kosh's apps responsive. About 0.4
-    # of a core per station was measured.
+    # Speech recognition runs nonstop; a cap keeps the radio and kosh's apps responsive. One station
+    # measured 0.89 of an Ampere core (2026-11-10), so 1.5 fits one; raise it before adding a second.
     cpus: 1.5
     mem_limit: 1g
     logging:
