@@ -7,7 +7,7 @@ services:
   radio:
     image: ghcr.io/thehimmat/google-home-radiocaster/streaming-server:${RADIO_TAG:-latest}
     restart: unless-stopped
-    # The VM is shared with kosh's database and apps.
+    # The VM is shared with kosh's database and atthebunga-server's gateway and apps.
     mem_limit: 2g
     logging:
       driver: json-file
@@ -20,7 +20,7 @@ services:
       # The lyrics service below, for /now-playing (503 there while the lyrics profile is off).
       LYRICS_URL: http://lyrics:3002
     ports:
-      # Host-side only: smoke.sh and debugging. The public way in is kosh's gateway.
+      # Host-side only: smoke.sh and debugging. The public way in is atthebunga-server's gateway.
       - "127.0.0.1:3001:3001"
     volumes:
       # Segments and status history survive restarts and deploys (Fly's hls_data volume did the same).
@@ -41,7 +41,7 @@ services:
     image: ghcr.io/thehimmat/google-home-radiocaster/lyrics:${LYRICS_TAG:-latest}
     profiles: [lyrics]
     restart: unless-stopped
-    # Speech recognition runs nonstop; a cap keeps the radio and kosh's apps responsive. One station
+    # Speech recognition runs nonstop; a cap keeps the radio and the site's apps responsive. One station
     # measured 0.89 of an Ampere core (2026-11-10), so 1.5 fits one; raise it before adding a second.
     cpus: 1.5
     mem_limit: 1g
@@ -68,6 +68,6 @@ services:
       retries: 3
 
 networks:
-  # Made by kosh-db's stack (gurmukhi-kosh, selfhost/docker-compose.apps.yml). Its gateway is the way in.
+  # Made by thehimmat/atthebunga-server's host-setup.sh. Its gateway is the way in.
   radio-edge:
     external: true

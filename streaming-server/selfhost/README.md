@@ -1,22 +1,23 @@
 # Streaming server on Oracle
 
 The streaming server's home after Fly.io: one container, `radio` (the image built from
-`streaming-server/`), running on `kosh-db` next to gurmukhi-kosh's stack (its `selfhost/`). A second
-VM would go over Always Free's 200 GB of block storage, which kosh-db's disk uses in full, so this
-shares that VM and its Caddy.
+`streaming-server/`), running on `kosh-db` next to gurmukhi-kosh's database and the sites served by
+[thehimmat/atthebunga-server](https://github.com/thehimmat/atthebunga-server). A second VM would go
+over Always Free's 200 GB of block storage, which kosh-db's disk uses in full, so this shares that
+VM and its Caddy.
 
 - **Server:** Oracle VM `kosh-db` (Ashburn, Ampere A1, 4 OCPU / 24 GB, Ubuntu 24.04), `141.148.39.45`.
 - **Code and settings on the server:** `/opt/radio` (main). Settings in
   `/opt/radio/streaming-server/selfhost/.env` (mode 600, gitignored). HLS segments and status
   history in `/srv/radio/hls`.
-- **Routing:** kosh's gateway owns ports 80 and 443 and reaches `radio:3001` over the `radio-edge`
-  Docker network, which is all the two stacks share. The site is gurmukhi-kosh's
-  `selfhost/sites/stream.caddy`, so a routing change is a PR there.
+- **Routing:** atthebunga-server's gateway owns ports 80 and 443 and reaches `radio:3001` over the
+  `radio-edge` Docker network, which is all the two stacks share. The site is atthebunga-server's
+  `sites/stream.caddy`, so a routing change is a PR there (it deploys on merge).
 - **Two ways in:**
   - `https://radio.141-148-39-45.sslip.io`: Let's Encrypt, not through Cloudflare. For testing before
     cutover, and to rule Cloudflare in or out when chasing a problem.
   - `https://stream.atthebunga.com`: through Cloudflare, with the same Origin CA certificate and
-    Authenticated Origin Pulls as kosh's sites, so only Cloudflare reaches it on that name.
+    Authenticated Origin Pulls as the other atthebunga.com sites, so only Cloudflare reaches it on that name.
 
 | File | What it does |
 |---|---|
@@ -36,8 +37,9 @@ One command per step, from your Mac.
 which is all of Always Free's A1 allowance. **This reboots the VM**, so kosh's sites are down for a
 few minutes.
 
-**2. Give the gateway the new site:** merge the gurmukhi-kosh PR that adds `sites/stream.caddy` and the
-`radio-edge` network. Its deploy applies them, recreating the gateway (a few seconds).
+**2. Give the gateway the new site:** `sites/stream.caddy` and the `radio-edge` network are in
+atthebunga-server. On a new server, its `host-setup.sh` creates the network and its deploy loads
+the site.
 
 **3. Set it up** (clones the code, starts the stack):
 
@@ -136,8 +138,8 @@ ssh ubuntu@141.148.39.45 'cd /opt/radio/streaming-server/selfhost && docker comp
 ```
 
 Security updates install daily, and a kernel update reboots the VM at 04:30 UTC, for kosh and the radio
-together. Listeners hear about a minute of silence. A deploy of kosh that recreates its gateway also
-drops listeners for a moment; a plain kosh or search deploy only reloads Caddy.
+together. Listeners hear about a minute of silence. An atthebunga-server change that recreates its
+gateway also drops listeners for a moment; a plain app or site deploy only reloads Caddy.
 
 **Oracle's idle reclaim:** Oracle stops Always Free VMs that look idle for 7 days (low CPU, network
 and memory). Continuous encoding keeps this one busy, but see gurmukhi-kosh's
