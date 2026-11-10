@@ -1,5 +1,5 @@
 import { Cast, createElement, Pause, Play, RadioTower } from 'lucide';
-import type { Station, StationBadge } from './types';
+import type { NowPlaying, Station, StationBadge } from './types';
 
 export interface UICallbacks {
   onSelectStation: (slug: string) => void;
@@ -22,6 +22,11 @@ export class UI {
   private readonly statusLine: HTMLElement;
   private readonly liveDots = new Map<string, HTMLElement>();
   private readonly cards = new Map<string, HTMLButtonElement>();
+  private readonly lyrics: HTMLElement;
+  private readonly lyricsSource: HTMLElement;
+  private readonly lyricsLines: HTMLElement;
+  /** Shabad id of the lines currently rendered, so a line change only moves the highlight. */
+  private lyricsShabad: string | null = null;
 
   constructor(root: HTMLElement, private readonly callbacks: UICallbacks) {
     root.innerHTML = '';
@@ -36,6 +41,15 @@ export class UI {
     header.append(logo, heading);
 
     this.stationList = el('main', 'stations');
+
+    // The shabad being sung (lyrics follower), shown above the stations while one is known.
+    this.lyrics = el('section', 'lyrics');
+    this.lyrics.hidden = true;
+    this.lyrics.setAttribute('aria-label', 'Shabad being sung');
+    this.lyricsSource = el('div', 'lyrics-source');
+    this.lyricsLines = el('ol', 'lyrics-lines');
+    this.lyricsLines.setAttribute('lang', 'pa');
+    this.lyrics.append(this.lyricsSource, this.lyricsLines);
 
     this.audio = document.createElement('audio');
     this.audio.hidden = true;
@@ -77,7 +91,7 @@ export class UI {
     this.statusLine = el('div', 'status');
 
     controls.append(this.playButton, this.volumeSlider, this.castWrap);
-    root.append(header, this.stationList, controls, this.statusLine, this.audio);
+    root.append(header, this.lyrics, this.stationList, controls, this.statusLine, this.audio);
     this.setPlaying(false);
   }
 
@@ -168,6 +182,29 @@ export class UI {
     document.body.classList.toggle('casting', casting);
     this.castButton.classList.toggle('is-casting', casting);
     this.setStatus(casting ? 'Casting to your speaker' : '');
+  }
+
+  setLyrics(np: NowPlaying | null): void {
+    if (!np) {
+      this.lyrics.hidden = true;
+      return;
+    }
+    if (np.shabad.id !== this.lyricsShabad) {
+      this.lyricsShabad = np.shabad.id;
+      this.lyricsSource.textContent = `${np.shabad.section}, Ang ${np.shabad.page}`;
+      this.lyricsLines.innerHTML = '';
+      for (const text of np.lines) {
+        const li = el('li', 'lyrics-line');
+        li.textContent = text;
+        this.lyricsLines.append(li);
+      }
+    }
+    this.lyrics.hidden = false;
+    const current = np.line?.index ?? -1;
+    [...this.lyricsLines.children].forEach((li, i) => li.classList.toggle('current', i === current));
+    const active = this.lyricsLines.children[current] as HTMLElement | undefined;
+    // Keep the sung line in view inside the panel, without scrolling the page.
+    if (active) this.lyricsLines.scrollTop = active.offsetTop - this.lyricsLines.clientHeight / 3;
   }
 
   setStatus(text: string): void {

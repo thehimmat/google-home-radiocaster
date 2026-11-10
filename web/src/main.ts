@@ -1,5 +1,6 @@
 import { fetchHealth, fetchStations } from './api';
 import { CastController } from './cast-controller';
+import { watchLyrics } from './lyrics';
 import { LocalPlayer } from './player';
 import type { Station } from './types';
 import { UI } from './ui';
@@ -9,6 +10,15 @@ const HEALTH_POLL_MS = 30_000;
 let stations: Station[] = [];
 let selected: Station | null = null;
 let casting = false;
+let stopLyrics: (() => void) | null = null;
+
+/** Follows the shabad on the chosen station; stations without lyrics just show nothing. */
+function followLyrics(slug: string): void {
+  if (stopLyrics && selected?.slug === slug) return;
+  stopLyrics?.();
+  ui.setLyrics(null);
+  stopLyrics = watchLyrics(slug, (np) => ui.setLyrics(np));
+}
 
 const ui = new UI(document.getElementById('app') as HTMLElement, {
   onSelectStation: (slug) => void selectStation(slug),
@@ -30,8 +40,13 @@ const castController = new CastController({
 async function selectStation(slug: string): Promise<void> {
   const station = stations.find((s) => s.slug === slug);
   if (!station) return;
+  if (selected?.slug !== slug) {
+    stopLyrics?.();
+    stopLyrics = null;
+  }
   selected = station;
   ui.setSelected(slug);
+  followLyrics(slug);
 
   try {
     if (casting) {
