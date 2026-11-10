@@ -12,7 +12,8 @@ RUN git init -q && git remote add origin https://github.com/sethigoldy/Kirtan-sa
 WORKDIR /tools
 RUN npm init -y >/dev/null && npm install --no-audit --no-fund typescript@5.9.3 @types/node@22
 WORKDIR /runtime
-RUN npm init -y >/dev/null && npm install --no-audit --no-fund --ignore-scripts onnxruntime-node@1.23.2
+RUN npm init -y >/dev/null && npm install --no-audit --no-fund --ignore-scripts onnxruntime-node@1.23.2 \
+ && rm -rf node_modules/onnxruntime-node/bin/napi-v*/darwin node_modules/onnxruntime-node/bin/napi-v*/win32
 WORKDIR /ks
 # asr.ts imports onnxruntime-node's types.
 RUN ln -s /runtime/node_modules node_modules \
