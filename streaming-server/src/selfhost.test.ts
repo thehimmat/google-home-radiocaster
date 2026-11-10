@@ -52,6 +52,33 @@ describe('docker-compose.yml', () => {
   it('keeps the host port on localhost only', () => {
     expect(compose).toContain('"127.0.0.1:3001:3001"');
   });
+
+  describe('lyrics follower (lyrics/)', () => {
+    const lyrics = compose.slice(compose.indexOf('\n  lyrics:'), compose.indexOf('\nnetworks:'));
+
+    it('is opt-in (COMPOSE_PROFILES=lyrics in .env), so deploys work before its image exists', () => {
+      expect(lyrics).toMatch(/^ {4}profiles: \[lyrics\]$/m);
+    });
+
+    it('reads our own stream over the shared network, with its port on localhost only', () => {
+      expect(lyrics).toContain('RADIO_URL: http://radio:3001');
+      expect(lyrics).toContain('"127.0.0.1:3002:3002"');
+      expect(lyrics).toMatch(/networks: \[radio-edge\]/);
+    });
+
+    it("is capped so speech recognition can't starve the radio or kosh's apps, and never sees .env's secrets", () => {
+      expect(lyrics).toMatch(/^ {4}cpus: /m);
+      expect(lyrics).toMatch(/^ {4}mem_limit: /m);
+      expect(lyrics).not.toContain('env_file');
+    });
+  });
+});
+
+describe('deploy.sh pulls every enabled service', () => {
+  it('pulls without naming one, so the lyrics image updates too once its profile is on', () => {
+    const script = fs.readFileSync(path.join(selfhost, 'scripts/deploy.sh'), 'utf8');
+    expect(script).toMatch(/docker compose pull -q$/m);
+  });
 });
 
 describe('smoke.sh', () => {

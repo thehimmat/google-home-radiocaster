@@ -23,7 +23,7 @@ cd "$(dirname "$0")/.."
 git fetch -q origin main
 git checkout -q -B main origin/main
 
-[ "$target" = config ] || docker compose pull -q radio
+[ "$target" = config ] || docker compose pull -q
 docker compose up -d --quiet-pull --wait
 docker image prune -f >/dev/null
 docker compose ps --format '{{.Service}}: {{.Status}}'
