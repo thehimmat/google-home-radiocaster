@@ -10,9 +10,9 @@ import path from 'path';
 import { createServer, NowPlaying } from './app';
 import { boundaryLines } from './fateh';
 import { DisplayGate, GateNote } from './gate';
-import { EngineLike, LyricsRunner, SAMPLE_RATE, SourceStream } from './runner';
+import { loadKirtanSaathi } from './ks';
+import { LyricsRunner, SAMPLE_RATE, SourceStream } from './runner';
 
-const KS_DIR = process.env.KS_DIR ?? '/opt/kirtan-saathi';
 const RADIO_URL = process.env.RADIO_URL ?? 'http://radio:3001';
 const STATIONS = (process.env.LYRICS_STATIONS ?? 'golden-temple').split(',').map((s) => s.trim()).filter(Boolean);
 const PORT = Number(process.env.PORT ?? 3002);
@@ -22,29 +22,10 @@ const THREADS = Number(process.env.LYRICS_THREADS ?? 1);
 // follows kirtan. Measured per station: 0.33 to 0.4 of a core on an M2, 0.89 on kosh-db's Ampere A1.
 const PACE = Number(process.env.LYRICS_PACE ?? 2);
 
-/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
-const ks = (mod: string) => require(path.join(KS_DIR, 'dist', 'engine', mod));
-const { Corpus } = ks('corpus');
-const { Retriever } = ks('retrieval');
-const { Engine } = ks('engine');
-const { AsrModel } = ks('asr');
-/* eslint-enable @typescript-eslint/no-require-imports */
-
-interface CorpusLike {
-  plain: string[];
-  shabadOf: Int32Array;
-  lineInShabad: Int32Array;
-  shabads: { id: string; source: number; section: string; page: number; start: number; count: number }[];
-  sources: { name: string; nameEn: string }[];
-}
-
 async function main(): Promise<void> {
   fs.mkdirSync(LOG_DIR, { recursive: true });
-  const corpus: CorpusLike = Corpus.load(path.join(KS_DIR, 'resources', 'corpus.json.gz'));
-  const retriever = new Retriever(corpus);
-  const model = await AsrModel.load(path.join(KS_DIR, 'models', 'model.int8.onnx'), path.join(KS_DIR, 'models', 'edge-vocab.json'), {
-    intraOpThreads: THREADS,
-  });
+  const ks = await loadKirtanSaathi(THREADS);
+  const corpus = ks.corpus;
   const fatehLines = boundaryLines(corpus);
   console.log(`[lyrics] corpus ${corpus.plain.length} lines, ${fatehLines.size} boundary lines; threads=${THREADS} pace=${PACE}`);
 
@@ -74,9 +55,7 @@ async function main(): Promise<void> {
       console.log(`[lyrics:${station}] ${n.kind}${s ? ` ${s.section} p${s.page}` : ''}${n.reason ? ` (${n.reason})` : ''} at ${n.t.toFixed(1)}s`);
     };
     const gate = new DisplayGate({ isBoundary: (line) => fatehLines.has(line), onNote });
-    const engine: EngineLike = new Engine(corpus, retriever, { transcribe: (x: Float32Array, at: number) => model.transcribe(x, at) }, { paceScale: PACE });
-    (engine as any).setMode({ kind: 'kirtan' });
-    const runner = new LyricsRunner(engine, gate);
+    const runner = new LyricsRunner(ks.newEngine(PACE), gate);
     new SourceStream(`${RADIO_URL}/${station}/stream`, (b) => { void runner.feedBytes(b); }).start();
     followed.set(station, { gate, runner });
   }
