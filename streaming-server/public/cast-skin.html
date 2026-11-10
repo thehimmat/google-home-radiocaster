@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stream atTheBunga - Cast Receiver</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+Gurmukhi:wght@400;600&display=swap">
   <style>
     * {
       margin: 0;
@@ -114,6 +117,123 @@
       font-style: italic;
     }
 
+    /* Lyrics (cast-lyrics.js): while a shabad is confirmed, the card moves left and the
+       shabad fills the rest of the screen, with the sung line highlighted. */
+    .lyrics {
+      display: none;
+    }
+
+    body.has-lyrics {
+      padding: 5vh 4vw;
+    }
+
+    body.has-lyrics .container {
+      max-width: none;
+      height: 90vh;
+      display: grid;
+      grid-template-columns: minmax(220px, 28%) 1fr;
+      gap: 4vw;
+      align-items: center;
+    }
+
+    body.has-lyrics .logo {
+      display: none;
+    }
+
+    body.has-lyrics .now-playing {
+      margin: 0;
+      padding: 28px 20px;
+    }
+
+    body.has-lyrics .artwork {
+      margin-bottom: 0;
+    }
+
+    body.has-lyrics .artwork img {
+      width: 150px !important;
+      height: 150px !important;
+      object-fit: cover !important;
+      padding: 0 !important;
+    }
+
+    body.has-lyrics .title {
+      font-size: 26px;
+      margin-bottom: 8px;
+    }
+
+    body.has-lyrics .loading {
+      margin-top: 20px;
+    }
+
+    body.has-lyrics .lyrics {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      text-align: left;
+    }
+
+    .lyrics-source {
+      font-size: clamp(14px, 2.6vh, 28px);
+      color: #d4cdc6;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 2vh;
+    }
+
+    .lyrics-lines {
+      list-style: none;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      scroll-behavior: smooth;
+      font-family: 'Noto Serif Gurmukhi', 'Mukta Mahee', serif;
+      font-size: clamp(20px, 4.6vh, 52px);
+      line-height: 1.7;
+      color: rgba(254, 248, 232, 0.42);
+      /* Fade lines in and out at the edges instead of cutting them off. */
+      -webkit-mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+      mask-image: linear-gradient(transparent, #000 8%, #000 88%, transparent);
+      padding: 2vh 0 30vh;
+    }
+
+    .lyrics-lines li {
+      transition: color 0.4s;
+    }
+
+    .lyrics-lines li.current {
+      color: #fef8e8;
+      font-weight: 600;
+    }
+
+    /* Short screens (Nest Hub is 1024x600): keep the plain card on screen. */
+    @media (max-height: 700px) {
+      .logo {
+        margin-bottom: 24px;
+      }
+
+      .logo img {
+        height: 56px !important;
+      }
+
+      .now-playing {
+        padding: 24px 40px;
+      }
+
+      .artwork {
+        margin-bottom: 12px;
+      }
+
+      .artwork img {
+        width: 160px !important;
+        height: 160px !important;
+      }
+
+      .metadata {
+        margin-top: 12px;
+      }
+    }
+
     /* Responsive */
     @media (max-width: 480px) {
       .container {
@@ -159,12 +279,18 @@
         <div class="status-message" id="statusMessage">Connecting to stream...</div>
       </div>
     </div>
+
+    <section class="lyrics" aria-label="Shabad being sung">
+      <div class="lyrics-source" id="lyricsSource"></div>
+      <ol class="lyrics-lines" id="lyricsLines" lang="pa"></ol>
+    </section>
   </div>
 
   <!-- CAF receiver framework: cast-media-player owns playback (audio included);
        it stays hidden and the custom layout above is driven by PlayerDataBinder. -->
   <cast-media-player style="display: none;"></cast-media-player>
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script src="/cast-lyrics.js"></script>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerData = {};
@@ -179,7 +305,20 @@
         metadata.subtitle || metadata.artist || 'Stream atTheBunga';
       const image = metadata.images && metadata.images[0] && metadata.images[0].url;
       document.getElementById('artworkImage').src = image || '/logos/atthebunga-logo-1A.png';
+      followLyrics((e.value && (e.value.contentUrl || e.value.contentId)) || '');
     });
+
+    // The shabad being sung on whatever station is loaded; stations without lyrics show the card alone.
+    const renderLyrics = castLyrics.createRenderer(document);
+    let lyricsFor = null;
+    let stopLyrics = () => {};
+    function followLyrics(mediaUrl) {
+      if (mediaUrl === lyricsFor) return;
+      lyricsFor = mediaUrl;
+      stopLyrics();
+      renderLyrics(null);
+      stopLyrics = castLyrics.follow(mediaUrl, renderLyrics, EventSource);
+    }
 
     binder.addEventListener(cast.framework.ui.PlayerDataEventType.STATE_CHANGED, (e) => {
       const playing = e.value === cast.framework.ui.State.PLAYING;
