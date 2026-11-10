@@ -54,6 +54,43 @@ body {
   letter-spacing: 0.5px;
 }
 
+.lyrics {
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.lyrics-source {
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+
+.lyrics-lines {
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  position: relative;
+  scroll-behavior: smooth;
+  font-family: 'Noto Serif Gurmukhi', 'Mukta Mahee', 'Raavi', serif;
+  font-size: 19px;
+  line-height: 1.7;
+}
+
+.lyrics-line {
+  color: var(--ink-faint);
+  padding: 2px 0;
+  transition: color 0.3s;
+}
+
+.lyrics-line.current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .stations {
   display: flex;
   flex-direction: column;

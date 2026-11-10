@@ -182,3 +182,47 @@ describe('UI', () => {
     expect(callbacks.onVolume).toHaveBeenCalledWith(0.4);
   });
 });
+
+describe('UI lyrics panel', () => {
+  const np = {
+    station: 'golden-temple',
+    state: 'showing' as const,
+    committed: true,
+    shabad: { id: '3JP', source: 'Sri Guru Granth Sahib', section: 'Raag Todee', page: 713 },
+    line: { index: 2, text: 'ਗ' },
+    lines: ['ਕ', 'ਖ', 'ਗ', 'ਘ'],
+  };
+  const panel = () => document.querySelector('.lyrics') as HTMLElement;
+
+  it('is hidden until there is a shabad to show', () => {
+    makeUI();
+    expect(panel().hidden).toBe(true);
+  });
+
+  it('shows the shabad with its raag and ang, and highlights the line being sung', () => {
+    const { ui } = makeUI();
+    ui.setLyrics(np);
+    expect(panel().hidden).toBe(false);
+    expect(panel().querySelector('.lyrics-source')?.textContent).toBe('Raag Todee, Ang 713');
+    const lines = [...panel().querySelectorAll('.lyrics-line')];
+    expect(lines.map((l) => l.textContent)).toEqual(['ਕ', 'ਖ', 'ਗ', 'ਘ']);
+    expect(lines.map((l) => l.classList.contains('current'))).toEqual([false, false, true, false]);
+    expect(panel().querySelector('.lyrics-lines')?.getAttribute('lang')).toBe('pa');
+  });
+
+  it('moves the highlight without rebuilding when only the line changes', () => {
+    const { ui } = makeUI();
+    ui.setLyrics(np);
+    const first = panel().querySelector('.lyrics-line');
+    ui.setLyrics({ ...np, line: { index: 0, text: 'ਕ' } });
+    expect(panel().querySelector('.lyrics-line')).toBe(first);
+    expect(panel().querySelector('.lyrics-line.current')?.textContent).toBe('ਕ');
+  });
+
+  it('hides again when nothing is being shown', () => {
+    const { ui } = makeUI();
+    ui.setLyrics(np);
+    ui.setLyrics(null);
+    expect(panel().hidden).toBe(true);
+  });
+});

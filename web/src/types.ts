@@ -41,3 +41,15 @@ export interface StationHealth {
  * vs 'error', quality.cause) is for /history and debugging, not the site.
  */
 export type StationBadge = 'down' | 'silent' | 'quiet' | 'choppy' | 'healthy' | 'off-air';
+
+/** The shabad being sung, from GET /now-playing/:station (the lyrics follower; Golden Temple only). */
+export interface NowPlaying {
+  station: string;
+  state: 'showing';
+  committed: boolean;
+  shabad: { id: string; source: string; section: string; page: number };
+  /** The line being sung: its position in `lines` and its text. */
+  line: { index: number; text: string } | null;
+  /** The whole shabad, in order. */
+  lines: string[];
+}
