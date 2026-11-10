@@ -13,11 +13,16 @@ const DISCOVERY_TIMEOUT_MS = 12000;
 // static APP_ID names the receiver; subclassing DefaultMediaReceiver keeps the
 // standard media channel the rest of this file drives.
 //
+// 1556335E is a Custom Receiver: the device loads our page and runs its code
+// (layout, lyrics). The older 85E83F4E is a Styled Media Receiver, which only
+// loads that URL as a CSS skin over Google's stock receiver, so none of the
+// page's code runs there.
+//
 // While the receiver app is unpublished it only works on devices registered as
 // test devices in the Cast console. Set CAST_RECEIVER=default to fall back to
 // the stock Default Media Receiver (CC1AD845) at any time.
 class CustomMediaReceiver extends DefaultMediaReceiver {
-  static APP_ID = '85E83F4E';
+  static APP_ID = '1556335E';
 }
 
 function receiverApp(): typeof DefaultMediaReceiver {

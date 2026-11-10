@@ -123,6 +123,12 @@
       display: none;
     }
 
+    /* The SDK's own touch player (smart displays). touchScreenOptimizedApp should
+       stop it; this keeps it hidden if a device injects it anyway. */
+    touch-controls {
+      display: none !important;
+    }
+
     body.has-lyrics {
       padding: 5vh 4vw;
     }
@@ -287,26 +293,14 @@
   </div>
 
   <!-- CAF receiver framework: cast-media-player owns playback (audio included);
-       it stays hidden and the custom layout above is driven by PlayerDataBinder. -->
+       it stays hidden and the custom layout above is driven by PlayerManager events. -->
   <cast-media-player style="display: none;"></cast-media-player>
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script src="/cast-lyrics.js"></script>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
-    const playerData = {};
-    const binder = new cast.framework.ui.PlayerDataBinder(playerData);
-
-    // Senders differ: the CLI sends GENERIC metadata (title/subtitle), the web
-    // player sends MusicTrack metadata (title/artist). Handle both.
-    binder.addEventListener(cast.framework.ui.PlayerDataEventType.MEDIA_INFO_CHANGED, (e) => {
-      const metadata = (e.value && e.value.metadata) || {};
-      document.getElementById('title').textContent = metadata.title || 'Now Playing';
-      document.getElementById('station').textContent =
-        metadata.subtitle || metadata.artist || 'Stream atTheBunga';
-      const image = metadata.images && metadata.images[0] && metadata.images[0].url;
-      document.getElementById('artworkImage').src = image || '/logos/atthebunga-logo-1A.png';
-      followLyrics((e.value && (e.value.contentUrl || e.value.contentId)) || '');
-    });
+    const playerManager = context.getPlayerManager();
+    const EventType = cast.framework.events.EventType;
 
     // The shabad being sung on whatever station is loaded; stations without lyrics show the card alone.
     const renderLyrics = castLyrics.createRenderer(document);
@@ -320,16 +314,34 @@
       stopLyrics = castLyrics.follow(mediaUrl, renderLyrics, EventSource);
     }
 
-    binder.addEventListener(cast.framework.ui.PlayerDataEventType.STATE_CHANGED, (e) => {
-      const playing = e.value === cast.framework.ui.State.PLAYING;
-      document.getElementById('loading').style.display = playing ? 'none' : '';
-      if (!playing) {
-        document.getElementById('statusMessage').textContent =
-          e.value === cast.framework.ui.State.IDLE ? 'Waiting for audio stream...' : 'Connecting to stream...';
-      }
-    });
+    // Senders differ: the CLI sends GENERIC metadata (title/subtitle), the web
+    // player sends MusicTrack metadata (title/artist). Handle both.
+    // Driven by the player itself: PlayerDataBinder never fired on a Nest Hub.
+    function showMedia() {
+      const media = playerManager.getMediaInformation();
+      if (!media) return;
+      const metadata = media.metadata || {};
+      document.getElementById('title').textContent = metadata.title || 'Now Playing';
+      document.getElementById('station').textContent =
+        metadata.subtitle || metadata.artist || 'Stream atTheBunga';
+      const image = metadata.images && metadata.images[0] && metadata.images[0].url;
+      document.getElementById('artworkImage').src = image || '/logos/atthebunga-logo-1A.png';
+      followLyrics(media.contentUrl || media.contentId || '');
+    }
 
-    context.start();
+    function showState(playing, message) {
+      document.getElementById('loading').style.display = playing ? 'none' : '';
+      if (!playing) document.getElementById('statusMessage').textContent = message;
+    }
+
+    playerManager.addEventListener(EventType.PLAYER_LOAD_COMPLETE, showMedia);
+    playerManager.addEventListener(EventType.PLAYING, () => { showMedia(); showState(true); });
+    playerManager.addEventListener(EventType.BUFFERING, (e) => { if (e.isBuffering) showState(false, 'Connecting to stream...'); });
+    playerManager.addEventListener([EventType.ENDED, EventType.ERROR], () => showState(false, 'Waiting for audio stream...'));
+
+    // We draw our own screen. Without this, smart displays (Nest Hub) lay the SDK's
+    // touch-controls player over the page, hiding the card and the lyrics.
+    context.start({ uiConfig: { touchScreenOptimizedApp: true } });
   </script>
 </body>
 </html>
