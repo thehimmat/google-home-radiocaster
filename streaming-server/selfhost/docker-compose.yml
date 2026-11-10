@@ -17,6 +17,8 @@ services:
     environment:
       PORT: "3001"
       HLS_ROOT: /data/hls
+      # The lyrics service below, for /now-playing (503 there while the lyrics profile is off).
+      LYRICS_URL: http://lyrics:3002
     ports:
       # Host-side only: smoke.sh and debugging. The public way in is kosh's gateway.
       - "127.0.0.1:3001:3001"

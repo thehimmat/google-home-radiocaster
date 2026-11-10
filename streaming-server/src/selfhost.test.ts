@@ -62,6 +62,8 @@ describe('docker-compose.yml', () => {
 
     it('reads our own stream over the shared network, with its port on localhost only', () => {
       expect(lyrics).toContain('RADIO_URL: http://radio:3001');
+      // and the radio relays it publicly as /now-playing
+      expect(compose).toContain('LYRICS_URL: http://lyrics:3002');
       expect(lyrics).toContain('"127.0.0.1:3002:3002"');
       expect(lyrics).toMatch(/networks: \[radio-edge\]/);
     });
