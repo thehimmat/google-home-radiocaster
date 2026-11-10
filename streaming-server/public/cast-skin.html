@@ -297,6 +297,7 @@
   <cast-media-player style="display: none;"></cast-media-player>
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script src="/cast-lyrics.js"></script>
+  <script src="/cast-recover.js"></script>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
@@ -338,6 +339,24 @@
     playerManager.addEventListener(EventType.PLAYING, () => { showMedia(); showState(true); });
     playerManager.addEventListener(EventType.BUFFERING, (e) => { if (e.isBuffering) showState(false, 'Connecting to stream...'); });
     playerManager.addEventListener([EventType.ENDED, EventType.ERROR], () => showState(false, 'Waiting for audio stream...'));
+
+    // If playback freezes (a network blip can leave a Hub stuck in BUFFERING for good),
+    // reload the same media, which rejoins the live stream.
+    const watchdog = castRecover.createStallWatchdog({
+      now: () => Date.now(),
+      getState: () => playerManager.getPlayerState(),
+      getTime: () => playerManager.getCurrentTimeSec(),
+      reload: () => {
+        const media = playerManager.getMediaInformation();
+        if (!media) return;
+        console.warn('[cast-recover] playback frozen: reloading the stream');
+        const request = new cast.framework.messages.LoadRequestData();
+        request.media = media;
+        request.autoplay = true;
+        playerManager.load(request);
+      },
+    });
+    setInterval(() => watchdog.check(), 2000);
 
     // We draw our own screen. Without this, smart displays (Nest Hub) lay the SDK's
     // touch-controls player over the page, hiding the card and the lyrics.
