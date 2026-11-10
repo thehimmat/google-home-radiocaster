@@ -3,7 +3,7 @@
  * device is playing, from the radio's /now-playing/<slug>/events stream, and draws it beside the
  * station card. Plain script (no build step); the same functions are required by Jest.
  *
- * Manual test (needs a Hub registered as a test device for app 85E83F4E in the Cast console):
+ * Manual test (needs a Hub registered as a test device in the Cast console; app 1556335E):
  *   1. Check https://stream.atthebunga.com/now-playing/golden-temple shows "state":"showing".
  *   2. `npm run cast-now "Golden Temple"` (or cast from radio.atthebunga.com in Chrome).
  *   3. The Hub shows the card on the left and the shabad on the right, the sung line bright.
