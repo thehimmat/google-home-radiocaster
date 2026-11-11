@@ -5,7 +5,9 @@
  * by-ear review of the trial (issue #37) set these rules:
  *
  * - A shabad appears only after the engine has held it for `confirmSec`. Short wrong
- *   locks happen right where one shabad ends and the next begins.
+ *   locks happen right where one shabad ends and the next begins, but scoring against
+ *   SGPC's captions (#37, #60) showed real wrong locks are rare (about 40 s an hour) and
+ *   lag at shabad changes is the bigger cost, so the confirm is short: 5 s.
  * - Quiet audio clears the display: a rolling `silenceSec` mean below `silenceDb`.
  *   Darbar Sahib's pauses sit at about -45 dB; singing rarely dips below -35 dB.
  * - The Fateh greeting, said before and after each kirtan slot, clears the display and
@@ -15,9 +17,9 @@
  *   shabads sung in between (interludes) are not shown yet. For `holdSec` after
  *   committing, a different shabad must hold for `holdSwitchSec` to take over;
  *   after that, for `switchSec`. Interludes are logged so they can be shown later.
- *   Both are 30 s for now: in the trial, a 60 s hold kept Raamkalee up for 47 s while
- *   the Jap salok after it was being sung, and no reviewed audio had an interlude to
- *   weigh against that. The interlude log is what to tune them with.
+ *   Both are 20 s: on 51 captioned minutes, 5 s confirm with 20 s switch beat 15 s / 30 s
+ *   on right-shabad time (75% vs 67%), lag and wrong locks alike (#60). The interlude log
+ *   and score-file.ts are what to tune them with.
  * - A brief flicker back to the shown shabad (under `resumeSec`) doesn't cancel a
  *   challenger that is still being heard.
  *
@@ -90,15 +92,15 @@ export class DisplayGate {
 
   constructor(private readonly opts: GateOptions = {}) {
     this.o = {
-      confirmSec: opts.confirmSec ?? 15,
+      confirmSec: opts.confirmSec ?? 5,
       silenceDb: opts.silenceDb ?? -38,
       silenceSec: opts.silenceSec ?? 6,
       lostSec: opts.lostSec ?? 10,
       commitLines: opts.commitLines ?? 3,
       commitSec: opts.commitSec ?? 60,
       holdSec: opts.holdSec ?? 300,
-      holdSwitchSec: opts.holdSwitchSec ?? 30,
-      switchSec: opts.switchSec ?? 30,
+      holdSwitchSec: opts.holdSwitchSec ?? 20,
+      switchSec: opts.switchSec ?? 20,
       resumeSec: opts.resumeSec ?? 10,
     };
   }

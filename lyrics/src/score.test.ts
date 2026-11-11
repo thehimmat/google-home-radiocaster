@@ -84,10 +84,10 @@ describe('replayTrace', () => {
     expect(raw[0]).toEqual({ t: 1, shabad: 1, line: 10 });
     expect(raw).toHaveLength(1); // only changes are kept
 
-    // Gate: confirms after 15 s, clears once the 6 s rolling mean is quiet.
+    // Gate: confirms after 5 s, clears once the 6 s rolling mean is quiet.
     expect(gated.map((g) => [g.t, g.shabad])).toEqual([
       [1, null],
-      [16, 1],
+      [6, 1],
       [36, null],
     ]);
   });
