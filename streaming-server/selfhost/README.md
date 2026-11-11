@@ -6,7 +6,7 @@ The streaming server's home after Fly.io: one container, `radio` (the image buil
 over Always Free's 200 GB of block storage, which kosh-db's disk uses in full, so this shares that
 VM and its Caddy.
 
-- **Server:** Oracle VM `kosh-db` (Ashburn, Ampere A1, 4 OCPU / 24 GB, Ubuntu 24.04), `141.148.39.45`.
+- **Server:** Oracle VM `kosh-db` (Ashburn, Ampere A1, 2 OCPU / 12 GB, Ubuntu 24.04), `141.148.39.45`.
 - **Code and settings on the server:** `/opt/radio` (main). Settings in
   `/opt/radio/streaming-server/selfhost/.env` (mode 600, gitignored). HLS segments and status
   history in `/srv/radio/hls`.
@@ -33,9 +33,10 @@ and validates the Compose file.
 
 One command per step, from your Mac.
 
-**1. Resize kosh-db** (Oracle console → Compute → Instances → kosh-db → Edit → shape): 4 OCPU, 24 GB,
-which is all of Always Free's A1 allowance. **This reboots the VM**, so kosh's sites are down for a
-few minutes.
+**1. The VM's size:** kosh-db stays at 2 OCPU / 12 GB, all of Always Free's A1 allowance since
+Oracle's 2026 change (1,500 OCPU-h + 9,000 GB-h a month). The radio and one lyrics station fit
+(about 1 core, under 1 GB). It ran at 4 OCPU / 24 GB for a few days from 2026-11-07, which Pay As You Go
+billed as the excess (atthebunga-server#4); don't resize up without deciding to pay for it.
 
 **2. Give the gateway the new site:** `sites/stream.caddy` and the `radio-edge` network are in
 atthebunga-server. On a new server, its `host-setup.sh` creates the network and its deploy loads

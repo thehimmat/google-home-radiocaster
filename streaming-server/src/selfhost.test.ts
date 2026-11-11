@@ -73,6 +73,12 @@ describe('docker-compose.yml', () => {
       expect(lyrics).toMatch(/^ {4}mem_limit: /m);
       expect(lyrics).not.toContain('env_file');
     });
+
+    it('fits a 2 OCPU VM (Always Free A1): above its ~0.9-core need, at most 1.2 of the 2 cores', () => {
+      const cpus = Number(lyrics.match(/^ {4}cpus: ([\d.]+)$/m)?.[1]);
+      expect(cpus).toBeGreaterThanOrEqual(1);
+      expect(cpus).toBeLessThanOrEqual(1.2);
+    });
   });
 });
 

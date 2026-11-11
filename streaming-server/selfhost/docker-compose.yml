@@ -42,8 +42,9 @@ services:
     profiles: [lyrics]
     restart: unless-stopped
     # Speech recognition runs nonstop; a cap keeps the radio and the site's apps responsive. One station
-    # measured 0.89 of an Ampere core (2026-11-10), so 1.5 fits one; raise it before adding a second.
-    cpus: 1.5
+    # measured 0.79-0.89 of an Ampere core (2026-11-10/11). The VM is 2 OCPU (Always Free), so 1.2
+    # leaves the rest 0.8; a second station needs a bigger VM, which Pay As You Go bills.
+    cpus: 1.2
     mem_limit: 1g
     logging:
       driver: json-file
