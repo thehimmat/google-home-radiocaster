@@ -126,6 +126,38 @@ describe('DisplayGate', () => {
     expect(shown.get(120)).toBe(2); // 20 s after 100, not after 108
   });
 
+  describe('programs sung as a sequence of parts (Asa di Vaar, Aarti, Anand Sahib, Bhog)', () => {
+    // Shabads 1-3 are parts of program "ASKV"; 9 is unrelated.
+    const programOf = (shabad: number) => (shabad >= 1 && shabad <= 3 ? ['ASKV'] : []);
+    const makeP = (notes: GateNote[] = []) => new DisplayGate({ programOf, onNote: (n) => notes.push(n) });
+
+    it('moves to the next part after partSwitchSec, even while the shown part is committed', () => {
+      const notes: GateNote[] = [];
+      const shown = replay(makeP(notes), [[0, 1, 10], [30, 1, 11], [60, 1, 12], [100, 2, 20]], { from: 0, to: 130 });
+      expect(shown.get(102)).toBe(1);
+      expect(shown.get(103)).toBe(2);
+      expect(notes).toContainEqual(expect.objectContaining({ kind: 'part', t: 103, shabad: 2 }));
+      expect(notes.some((n) => n.kind === 'interlude')).toBe(false);
+    });
+
+    it('keeps the program committed across parts', () => {
+      const gate = makeP();
+      replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [100, 2, 20]], { from: 0, to: 110 });
+      expect(gate.current()).toMatchObject({ shabad: 2, committed: true, reason: 'part' });
+    });
+
+    it('still holds a committed program against an unrelated shabad for holdSwitchSec', () => {
+      const shown = replay(makeP(), [[0, 1, 10], [30, 1, 11], [60, 1, 12], [100, 9, 90]], { from: 0, to: 130 });
+      expect(shown.get(119)).toBe(1);
+      expect(shown.get(120)).toBe(9);
+    });
+
+    it('ignores a part blip shorter than partSwitchSec', () => {
+      const shown = replay(makeP(), [[0, 1, 10], [30, 1, 11], [60, 1, 12], [100, 3, 30], [102, 1, 13]], { from: 0, to: 120 });
+      expect(new Set([...shown.entries()].filter(([t]) => t >= 60).map(([, s]) => s))).toEqual(new Set([1]));
+    });
+  });
+
   describe('replaying the by-ear trial (shabad numbers are ang numbers)', () => {
     // Recording 1: Raamkalee (964/965) then the Jap salok (8) from 2:01, with a flicker back to
     // 965 at 2:03; the singing stops at about 2:56 (-45 dB after).
