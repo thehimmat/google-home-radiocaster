@@ -10,7 +10,8 @@ import path from 'path';
 import { createServer, NowPlaying } from './app';
 import { boundaryLines } from './fateh';
 import { DisplayGate, GateNote } from './gate';
-import { loadKirtanSaathi } from './ks';
+import { LINE_TRACKER, loadKirtanSaathi } from './ks';
+import { programIndex } from './programs';
 import { LyricsRunner, SAMPLE_RATE, SourceStream } from './runner';
 
 const RADIO_URL = process.env.RADIO_URL ?? 'http://radio:3001';
@@ -21,12 +22,14 @@ const THREADS = Number(process.env.LYRICS_THREADS ?? 1);
 // Kirtan Saathi's pacer: 2 decodes half as often as its default, which the trial showed still
 // follows kirtan. Measured per station: 0.33 to 0.4 of a core on an M2, 0.89 on kosh-db's Ampere A1.
 const PACE = Number(process.env.LYRICS_PACE ?? 2);
+const TRACKER = LINE_TRACKER;
 
 async function main(): Promise<void> {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const ks = await loadKirtanSaathi(THREADS);
   const corpus = ks.corpus;
   const fatehLines = boundaryLines(corpus);
+  const programOf = programIndex(corpus);
   console.log(`[lyrics] corpus ${corpus.plain.length} lines, ${fatehLines.size} boundary lines; threads=${THREADS} pace=${PACE}`);
 
   const describe = (station: string, gate: DisplayGate): NowPlaying => {
@@ -54,8 +57,8 @@ async function main(): Promise<void> {
       log.write(JSON.stringify(entry) + '\n');
       console.log(`[lyrics:${station}] ${n.kind}${s ? ` ${s.section} p${s.page}` : ''}${n.reason ? ` (${n.reason})` : ''} at ${n.t.toFixed(1)}s`);
     };
-    const gate = new DisplayGate({ isBoundary: (line) => fatehLines.has(line), onNote });
-    const runner = new LyricsRunner(ks.newEngine(PACE), gate);
+    const gate = new DisplayGate({ isBoundary: (line) => fatehLines.has(line), programOf, onNote });
+    const runner = new LyricsRunner(ks.newEngine({ paceScale: PACE, tracker: TRACKER }), gate);
     new SourceStream(`${RADIO_URL}/${station}/stream`, (b) => { void runner.feedBytes(b); }).start();
     followed.set(station, { gate, runner });
   }

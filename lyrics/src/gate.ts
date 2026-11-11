@@ -22,6 +22,11 @@
  *   and score-file.ts are what to tune them with.
  * - A brief flicker back to the shown shabad (under `resumeSec`) doesn't cancel a
  *   challenger that is still being heard.
+ * - Some programs are sung as a sequence of parts the corpus files as separate shabads:
+ *   Asa di Vaar's saloks, pauris and chhants, the Aarti, the Bhog. `programOf` names the
+ *   program a shabad belongs to. Moving between parts of the shown program takes only
+ *   `partSwitchSec` and keeps the program committed; it is not an interlude. Scoring
+ *   (#46) found two thirds of wrong-shabad time was a previous part still on screen.
  *
  * Times are stream seconds. Pure logic: the caller feeds levels and engine events.
  */
@@ -40,12 +45,12 @@ export interface Display {
   since: number;
   committed: boolean;
   /** Why the display last changed. */
-  reason: 'start' | 'show' | 'switch' | 'silence' | 'fateh' | 'lost';
+  reason: 'start' | 'show' | 'switch' | 'part' | 'silence' | 'fateh' | 'lost';
 }
 
 export interface GateNote {
   t: number;
-  kind: 'show' | 'switch' | 'clear' | 'commit' | 'interlude' | 'boundary';
+  kind: 'show' | 'switch' | 'part' | 'clear' | 'commit' | 'interlude' | 'boundary';
   shabad?: number | null;
   reason?: Display['reason'];
 }
@@ -53,6 +58,8 @@ export interface GateNote {
 export interface GateOptions {
   /** True for the line of the Fateh greeting (see fateh.ts). */
   isBoundary?: (line: number) => boolean;
+  /** The programs (bani ids) a shabad is a part of; empty for a standalone shabad. */
+  programOf?: (shabad: number) => readonly string[];
   onNote?: (note: GateNote) => void;
   confirmSec?: number;
   silenceDb?: number;
@@ -64,6 +71,7 @@ export interface GateOptions {
   holdSwitchSec?: number;
   switchSec?: number;
   resumeSec?: number;
+  partSwitchSec?: number;
 }
 
 interface Heard {
@@ -82,7 +90,7 @@ interface Shown extends Heard {
 }
 
 export class DisplayGate {
-  private readonly o: Required<Omit<GateOptions, 'isBoundary' | 'onNote'>>;
+  private readonly o: Required<Omit<GateOptions, 'isBoundary' | 'programOf' | 'onNote'>>;
   private shown: Shown | null = null;
   private pending: Heard | null = null;
   private noneSince: number | null = null;
@@ -102,6 +110,7 @@ export class DisplayGate {
       holdSwitchSec: opts.holdSwitchSec ?? 20,
       switchSec: opts.switchSec ?? 20,
       resumeSec: opts.resumeSec ?? 10,
+      partSwitchSec: opts.partSwitchSec ?? 3,
     };
   }
 
@@ -167,7 +176,7 @@ export class DisplayGate {
 
     if (!this.pending || this.pending.shabad !== shabad) {
       this.pending = { shabad, line, firstHeard: t, lines: new Set() };
-      if (s?.committedAt != null) this.note({ t, kind: 'interlude', shabad });
+      if (s?.committedAt != null && !this.samePart(s.shabad, shabad)) this.note({ t, kind: 'interlude', shabad });
     }
     const p = this.pending;
     p.interruptedAt = null;
@@ -179,13 +188,25 @@ export class DisplayGate {
       if (held >= this.o.confirmSec) this.show(t, p, 'show');
       return;
     }
+    if (this.samePart(s.shabad, shabad)) {
+      if (held >= this.o.partSwitchSec) this.show(t, p, 'part', s.committedAt);
+      return;
+    }
     const need =
       s.committedAt === null ? this.o.confirmSec : t - s.committedAt < this.o.holdSec ? this.o.holdSwitchSec : this.o.switchSec;
     if (held >= need) this.show(t, p, 'switch');
   }
 
-  private show(t: number, p: Heard, reason: 'show' | 'switch'): void {
-    this.shown = { ...p, shownAt: t, committedAt: null };
+  /** Both shabads are parts of the same program. */
+  private samePart(a: number, b: number): boolean {
+    const programOf = this.opts.programOf;
+    if (!programOf) return false;
+    const of_b = programOf(b);
+    return programOf(a).some((p) => of_b.includes(p));
+  }
+
+  private show(t: number, p: Heard, reason: 'show' | 'switch' | 'part', committedAt: number | null = null): void {
+    this.shown = { ...p, shownAt: t, committedAt };
     this.pending = null;
     this.shownReason = reason;
     this.note({ t, kind: reason, shabad: p.shabad });
