@@ -14,6 +14,32 @@ export function pickTransport(hlsJsSupported: boolean, nativeHls: boolean): Tran
   return 'raw-aac';
 }
 
+export interface PlaybackState {
+  paused: boolean;
+  currentTime: number;
+  /** End of the seekable range (HLS: the newest segment's end), NaN if none. */
+  seekableEnd: number;
+  /** End of the buffered audio, NaN if none. */
+  bufferedEnd: number;
+  /** hls.js's own estimate of the distance from the live edge, NaN if none. */
+  hlsLatency: number;
+}
+
+/**
+ * Seconds behind live the listener hears, so lyrics from the live follower can wait for them.
+ * HLS players start a few segments behind the newest (hls.js: 3 x 6 s); the raw stream arrives
+ * from the live edge, so whatever is buffered ahead of playback is the delay. 0 when not playing
+ * or when the numbers make no sense.
+ */
+export function playbackLatency(transport: Transport, s: PlaybackState): number {
+  if (s.paused) return 0;
+  let behind: number;
+  if (transport === 'hls.js' && Number.isFinite(s.hlsLatency) && s.hlsLatency > 0) behind = s.hlsLatency;
+  else if (transport === 'raw-aac') behind = s.bufferedEnd - s.currentTime;
+  else behind = s.seekableEnd - s.currentTime;
+  return Number.isFinite(behind) && behind > 0 && behind < 120 ? behind : 0;
+}
+
 /** Wraps one <audio> element and whichever HLS transport the browser supports. */
 export class LocalPlayer {
   private hls: Hls | null = null;
@@ -67,6 +93,19 @@ export class LocalPlayer {
 
   get playing(): boolean {
     return !this.audio.paused;
+  }
+
+  /** Seconds behind live the listener hears (see playbackLatency). */
+  latencySec(): number {
+    const a = this.audio;
+    const end = (r: TimeRanges) => (r.length ? r.end(r.length - 1) : NaN);
+    return playbackLatency(this.transport, {
+      paused: a.paused,
+      currentTime: a.currentTime,
+      seekableEnd: end(a.seekable),
+      bufferedEnd: end(a.buffered),
+      hlsLatency: this.hls?.latency ?? NaN,
+    });
   }
 
   private detach(): void {

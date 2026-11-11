@@ -17,7 +17,8 @@ function followLyrics(slug: string): void {
   if (stopLyrics && selected?.slug === slug) return;
   stopLyrics?.();
   ui.setLyrics(null);
-  stopLyrics = watchLyrics(slug, (np) => ui.setLyrics(np));
+  // Casting: the device plays on its own clock, so show updates as they come.
+  stopLyrics = watchLyrics(slug, (np) => ui.setLyrics(np), { delaySec: () => (casting ? 0 : localPlayer.latencySec()) });
 }
 
 const ui = new UI(document.getElementById('app') as HTMLElement, {
