@@ -31,23 +31,23 @@ const make = (notes: GateNote[] = []) =>
   new DisplayGate({ isBoundary: (line) => line === FATEH_LINE, onNote: (n) => notes.push(n) });
 
 describe('DisplayGate', () => {
-  it('shows nothing until a shabad has held for 15 s', () => {
+  it('shows nothing until a shabad has held for 5 s', () => {
     const gate = make();
     gate.level(0, -24);
     gate.event({ t: 0, shabad: 1, line: 10 });
-    gate.event({ t: 14, shabad: 1, line: 10 });
+    gate.event({ t: 4, shabad: 1, line: 10 });
     expect(gate.current().state).toBe('idle');
-    gate.event({ t: 15, shabad: 1, line: 11 });
+    gate.event({ t: 5, shabad: 1, line: 11 });
     expect(gate.current()).toMatchObject({ state: 'showing', shabad: 1, line: 11 });
   });
 
-  it('keeps the shown shabad through a short wrong lock (8 s blips at a shabad change)', () => {
+  it('keeps a committed shabad through a short wrong lock (8 s blips at a shabad change)', () => {
     const gate = make();
-    const shown = replay(gate, [[0, 1, 10], [40, 2, 20], [48, 1, 11]], { from: 0, to: 70 });
+    const shown = replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [120, 2, 20], [128, 1, 13]], { from: 0, to: 150 });
     expect(new Set(shown.values())).toEqual(new Set([null, 1]));
   });
 
-  it('clears the display once the audio has been quiet for 6 s, and needs a fresh 15 s after', () => {
+  it('clears the display once the audio has been quiet for 6 s, and needs a fresh 5 s after', () => {
     const gate = make();
     // Singing until 100, then the -45 dB floor of a pause (Recording 1, clip a4).
     const shown = replay(gate, [[0, 1, 10]], { from: 0, to: 140, quietFrom: 100 });
@@ -58,6 +58,9 @@ describe('DisplayGate', () => {
     gate.level(141, -24);
     gate.event({ t: 141, shabad: 1, line: 10 });
     expect(gate.current().state).toBe('idle');
+    gate.level(146, -24);
+    gate.event({ t: 146, shabad: 1, line: 10 });
+    expect(gate.current().state).toBe('showing');
   });
 
   it('treats the Fateh greeting as a boundary: clears the display and logs it, never shows it', () => {
@@ -93,10 +96,10 @@ describe('DisplayGate', () => {
       expect(gate.current().committed).toBe(false);
     });
 
-    it('holds a committed shabad through an interlude shorter than 30 s, and logs the interlude', () => {
+    it('holds a committed shabad through an interlude shorter than 20 s, and logs the interlude', () => {
       const notes: GateNote[] = [];
       const gate = make(notes);
-      const shown = replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [120, 5, 50], [145, 1, 13]], { from: 0, to: 160 });
+      const shown = replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [120, 5, 50], [138, 1, 13]], { from: 0, to: 160 });
       expect(new Set([...shown.entries()].filter(([t]) => t >= 60).map(([, s]) => s))).toEqual(new Set([1]));
       expect(notes).toContainEqual(expect.objectContaining({ kind: 'interlude', t: 120, shabad: 5 }));
     });
@@ -108,19 +111,19 @@ describe('DisplayGate', () => {
       expect(shown.get(180)).toBe(5);
     });
 
-    it('after those 5 minutes, a new shabad takes over once it holds for 30 s', () => {
+    it('after those 5 minutes, a new shabad takes over once it holds for 20 s', () => {
       const gate = make();
       const shown = replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [400, 5, 50]], { from: 0, to: 450 });
-      expect(shown.get(429)).toBe(1);
-      expect(shown.get(430)).toBe(5);
+      expect(shown.get(419)).toBe(1);
+      expect(shown.get(420)).toBe(5);
     });
   });
 
   it('keeps a new shabad pending through a brief flicker back to the shown one', () => {
     const gate = make();
-    const shown = replay(gate, [[0, 1, 10], [40, 2, 20], [42, 1, 10], [48, 2, 21]], { from: 0, to: 60 });
-    expect(shown.get(54)).toBe(1);
-    expect(shown.get(55)).toBe(2); // 15 s after 40, not after 48
+    const shown = replay(gate, [[0, 1, 10], [30, 1, 11], [60, 1, 12], [100, 2, 20], [102, 1, 12], [108, 2, 21]], { from: 0, to: 140 });
+    expect(shown.get(119)).toBe(1);
+    expect(shown.get(120)).toBe(2); // 20 s after 100, not after 108
   });
 
   describe('replaying the by-ear trial (shabad numbers are ang numbers)', () => {
@@ -132,10 +135,10 @@ describe('DisplayGate', () => {
       [121, 8, 1], [123, 965, 5], [131, 8, 2], [131.5, 8, 3], [138, 8, 4], [146.5, 8, 5], [181, 7, FATEH_LINE], [183, 8, 5],
     ];
 
-    it('switches to the Jap salok 30 s after it starts, and clears 6 s into the silence after it', () => {
+    it('switches to the Jap salok 20 s after it starts, and clears 6 s into the silence after it', () => {
       const shown = replay(make(), rec1, { from: 0, to: 285, quietFrom: 176 });
-      expect(shown.get(150)).toBe(965);
-      expect(shown.get(151)).toBe(8);
+      expect(shown.get(140)).toBe(965);
+      expect(shown.get(141)).toBe(8);
       expect(shown.get(181)).toBeNull();
       expect(screenTime(shown)[-1]).toBeGreaterThan(100);
     });
@@ -151,9 +154,10 @@ describe('DisplayGate', () => {
       [1272, 1120, 1], [1286, 1120, 2], [1329, 1120, 1], [1358, 1120, 5], [1452, 1120, 6], [1497, 1120, 1],
     ];
 
-    it('never shows Malaar and keeps Kaydaaraa to the end; Maaroo still shows for 30 s, only later', () => {
+    // The 5 s confirm (scored on SGPC captions, #60) trades the 8 s Malaar lock for less lag.
+    it('shows Malaar for its 8 s, Maaroo for 30 s, and keeps Kaydaaraa to the end', () => {
       const t = screenTime(replay(make(), rec2, { from: 855, to: 1500 }));
-      expect(t[1271]).toBeUndefined();
+      expect(t[1271]).toBe(8);
       expect(t[1071]).toBe(30);
       expect(t[1120]).toBeGreaterThan(420);
     });
