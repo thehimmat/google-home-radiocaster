@@ -3,6 +3,8 @@ import { GateEvent } from './gate';
 import { rmsDb } from './level';
 
 export const SAMPLE_RATE = 16000;
+/** Audio is handed to the engine in pieces of this many samples (0.1 s). */
+const PIECE = 1600;
 
 /** What the runner needs from Kirtan Saathi's Engine (engine/engine.ts there). */
 export interface EngineLike {
@@ -28,6 +30,8 @@ export class LyricsRunner {
   private secondFill = 0;
   private carry = Buffer.alloc(0);
   private chain: Promise<void> = Promise.resolve();
+  private piece = new Float32Array(PIECE);
+  private pieceFill = 0;
 
   constructor(private readonly engine: EngineLike, private readonly gate: GateLike) {}
 
@@ -54,8 +58,26 @@ export class LyricsRunner {
 
   feed(chunk: Float32Array): Promise<void> {
     this.received += chunk.length;
-    this.chain = this.chain.then(() => this.process(chunk));
+    this.chain = this.chain.then(() => this.split(chunk));
     return this.chain;
+  }
+
+  /**
+   * The engine decodes a window whenever a hop falls due, ending where the audio pushed so
+   * far ends. Pushing fixed pieces makes those windows land at the same places however the
+   * bytes arrived, so a recording replays exactly (and score-file.ts's decode cache hits).
+   */
+  private async split(chunk: Float32Array): Promise<void> {
+    for (let i = 0; i < chunk.length; ) {
+      const n = Math.min(chunk.length - i, PIECE - this.pieceFill);
+      this.piece.set(chunk.subarray(i, i + n), this.pieceFill);
+      this.pieceFill += n;
+      i += n;
+      if (this.pieceFill === PIECE) {
+        this.pieceFill = 0;
+        await this.process(this.piece.slice());
+      }
+    }
   }
 
   private async process(chunk: Float32Array): Promise<void> {

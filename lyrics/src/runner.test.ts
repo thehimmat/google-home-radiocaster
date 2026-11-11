@@ -10,7 +10,7 @@ class FakeEngine implements EngineLike {
   pushAudio(chunk: Float32Array): void {
     const before = this.pushed;
     this.pushed += chunk.length;
-    for (let s = Math.ceil(before / this.every) * this.every || this.every; s <= this.pushed; s += this.every) {
+    for (let s = (Math.floor(before / this.every) + 1) * this.every; s <= this.pushed; s += this.every) {
       this.queue.push(this.at(s / 16000));
     }
   }
@@ -36,6 +36,22 @@ describe('LyricsRunner', () => {
     expect(events).toEqual([0.5, 1, 1.5, 2, 2.5]);
     expect(runner.streamSec).toBeCloseTo(2.5);
     expect(runner.backlogSec).toBe(0);
+  });
+
+  it('hands the engine audio in fixed 0.1 s pieces however it arrives, so runs repeat exactly', async () => {
+    const sizes: number[] = [];
+    const engine: EngineLike = {
+      pushAudio: (chunk) => sizes.push(chunk.length),
+      due: () => false,
+      step: async () => null,
+    };
+    const runner = new LyricsRunner(engine, { level: () => undefined, event: () => undefined });
+    const audio = new Float32Array(5000);
+    await runner.feed(audio.subarray(0, 700));
+    await runner.feed(audio.subarray(700, 4100));
+    await runner.feed(audio.subarray(4100));
+    expect(sizes).toEqual([1600, 1600, 1600]);
+    expect(runner.streamSec).toBeCloseTo(4800 / 16000);
   });
 
   it('accepts raw f32le bytes split anywhere, even mid-sample', async () => {
